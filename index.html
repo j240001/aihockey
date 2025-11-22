@@ -328,7 +328,7 @@ function drawMenu() {
 // =========================================================
 // GAME CLOCK AND SCORE GLOBALS
 // =========================================================
-const GAME_DURATION_SECONDS = 90; // seconds
+const GAME_DURATION_SECONDS = 180; // seconds
 let timeRemaining = GAME_DURATION_SECONDS;
 let lastGameTimeUpdate = performance.now();
 
@@ -339,7 +339,7 @@ let puckOutMessageUntil = 0;      // when the message expires
 let puckOutPauseUntil = 0;        // new simple pause timer
 let puckOutResetAt = 0;           // when to actually move players to faceoff
 
-
+let gameOverAutoStartAt = 0;  // for github only
 
 
 let scoreTeam0 = 0;
@@ -364,7 +364,7 @@ const TEAM1_COLOR = "#ff6a3c";
 const TEAM0_COLOR_HAS_PUCK = "#006deb";  
 const TEAM1_COLOR_HAS_PUCK = "#de3b00";  
 
-let DEBUG_ROLES = true;   // set false for normal jerseys
+let DEBUG_ROLES = false;   // set false for normal jerseys
 
 
 let goalResetTimer = 0;   // frames until puck resets
@@ -900,7 +900,7 @@ players.push(makePlayer({
 
 // Opponent AI skater (team 1)
 players.push(makePlayer({
-    id: 6, team: 1, type: "skater", isHuman: true,
+    id: 6, team: 1, type: "skater", isHuman: false,
     x: RX + 20, y: RY, angle: Math.PI
 }));
 
@@ -3148,6 +3148,7 @@ function updateClock(now) {
         if (timeRemaining < 0) {
             timeRemaining = 0;
             gameState = "gameover";   // ← END GAME
+            gameOverAutoStartAt = Date.now() + 10000;   // restart in 10 seconds
             console.log("Game Over!");
         }
     }
@@ -3747,7 +3748,18 @@ function loop(now) {
 
     // === GAME OVER ===
     if (gameState === 'gameover') {
-        return handleGameOver(now);
+        
+        // AUTO-RESTART TIMER
+        if (Date.now() >= gameOverAutoStartAt) {
+            startGame();
+            gameState = 'playing';
+            return requestAnimationFrame(loop);
+        }
+
+        // still in game over → draw screen
+        handleGameOver(now);
+        requestAnimationFrame(loop);
+        return;
     }
 
     // PAUSE FOR PUCK-OUT-OF-PLAY (simple pause)
