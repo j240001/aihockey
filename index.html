@@ -3517,62 +3517,7 @@ function renderFrame() {
     }
 
 
-    // ========================================================
-    // SHOOTING HUD (TEAM 0 puck carrier only)
-    // ========================================================
-
-    // 1) FIND SHOOTER
-    let shooter = null;
-    if (puck.ownerId !== null) {
-        for (const p of players) {
-            if (p.id === puck.ownerId && p.team === 0) {
-                shooter = p;
-                break;
-            }
-        }
-    }
-
-    // No HUD unless Team 0 has the puck
-    if (!shooter) return;
-
-    // 2) RE-EVALUATE SHOT
-    const evalS = evaluateShot(shooter);
-
-    // 3) COLOR
-    if (!evalS.good) {
-        shootIndicator = "red";
-    } else if (shootReason === "BREAKAWAY → GOOD") {
-        shootIndicator = "green";
-    } else {
-        shootIndicator = "green";
-    }
-
-    // HUD BAR
-    const barH = 70;
-    const barY = H - barH;
-
-    // background
-    ctx.fillStyle = "#222";
-    ctx.fillRect(0, barY, W, barH);
-
-    // indicator strip
-    if (shootIndicator === "red")   ctx.fillStyle = "#a00";
-    if (shootIndicator === "green") ctx.fillStyle = "#0a0";
-    ctx.fillRect(0, barY, W, 20);
-
-    // text
-    ctx.textAlign = "center";
-    ctx.fillStyle = "#fff";
-
-    // line 1
-    ctx.font = "22px Arial";
-    if (shootIndicator !== "red") {
-        ctx.fillText(`SHOT: ${shootIndicator.toUpperCase()}`, W/2, barY + 42);
-    }
-
-    // line 2
-    ctx.font = "18px Arial";
-    ctx.fillText(shootReason, W/2, barY + 62);
+  
 }
 
 
