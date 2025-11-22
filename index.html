@@ -3696,8 +3696,17 @@ function loop(now) {
         
         // AUTO-RESTART TIMER
         if (Date.now() >= gameOverAutoStartAt) {
-            startGame();
+            TRAINING_MODE = false;
+            stopTraining();
+
             gameState = 'playing';
+            resetPlayersToSpawn();
+            timeRemaining = GAME_DURATION_SECONDS;
+            scoreTeam0 = 0;
+            scoreTeam1 = 0;
+            lastGameTimeUpdate = performance.now();
+            startFaceoffPause();
+
             return requestAnimationFrame(loop);
         }
 
