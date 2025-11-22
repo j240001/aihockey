@@ -255,8 +255,9 @@ function startGame(startNewEpisode = false) {
         }
     }
 
-    // Always ensure the training loop is active when not in menu
-    // startTraining();
+    if (TRAINING_MODE) startTraining();
+    else stopTraining();
+
 }
 
 function activateMenuItem(item) {
