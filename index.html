@@ -219,7 +219,7 @@ let menuAutoStartAt = Date.now() + 4000;   // 4 seconds
 function startTraining() {
     // Only schedule if a training loop isn't already running
     if (trainingTimeoutId === null) {
-        trainingLoop();
+        //trainingLoop();
     }
 }
 
@@ -255,9 +255,8 @@ function startGame(startNewEpisode = false) {
         }
     }
 
-    if (TRAINING_MODE) startTraining();
-    else stopTraining();
-
+    // Always ensure the training loop is active when not in menu
+    //startTraining();
 }
 
 function activateMenuItem(item) {
@@ -329,7 +328,7 @@ function drawMenu() {
 // =========================================================
 // GAME CLOCK AND SCORE GLOBALS
 // =========================================================
-const GAME_DURATION_SECONDS = 20; // seconds
+const GAME_DURATION_SECONDS = 180; // seconds
 let timeRemaining = GAME_DURATION_SECONDS;
 let lastGameTimeUpdate = performance.now();
 
@@ -340,7 +339,7 @@ let puckOutMessageUntil = 0;      // when the message expires
 let puckOutPauseUntil = 0;        // new simple pause timer
 let puckOutResetAt = 0;           // when to actually move players to faceoff
 
-let gameOverAutoStartAt = 0;  // for github only
+
 
 
 let scoreTeam0 = 0;
@@ -3149,8 +3148,8 @@ function updateClock(now) {
         if (timeRemaining < 0) {
             timeRemaining = 0;
             gameState = "gameover";   // ← END GAME
-            gameOverAutoStartAt = Date.now() + 10000;   // restart in 10 seconds
             console.log("Game Over!");
+            gameOverAutoStartAt = Date.now() + 5000;  // 5s delay
         }
     }
     
@@ -3465,10 +3464,7 @@ function renderFrame() {
         drawPlayer(p);
     }
 
-    // FPS
-    // ctx.fillStyle = "#fff";
-    // ctx.font = "20px Arial";
-    //ctx.fillText(`${fps} FPS`, 10, 30);
+
 
     // Scoreboard
     drawScoreboard();
@@ -3504,17 +3500,6 @@ function renderFrame() {
 
         // NOW teleport players into faceoff formation
         doFaceoffPositioning();
-    }
-
-
-    // ========================================================
-    // TRAINING DISPLAY
-    // ========================================================
-    if (TRAINING_MODE) {
-        ctx.font = "16px Arial";
-        ctx.fillText(`EP ${TRAIN_EPISODES}`, 800, 20);
-        ctx.fillText(`STEPS ${TRAIN_STEPS}`, 800, 40);
-        ctx.fillText(`SPS ${TRAIN_SPS}`, 800, 60);
     }
 
 
@@ -3692,30 +3677,33 @@ function loop(now) {
         return;
     }
 
-    // === GAME OVER ===
-    if (gameState === 'gameover') {
-        
-        // AUTO-RESTART TIMER
-        if (Date.now() >= gameOverAutoStartAt) {
-            TRAINING_MODE = false;
-            stopTraining();
+// === GAME OVER ===
+if (gameState === 'gameover') {
 
-            gameState = 'playing';
-            resetPlayersToSpawn();
-            timeRemaining = GAME_DURATION_SECONDS;
-            scoreTeam0 = 0;
-            scoreTeam1 = 0;
-            lastGameTimeUpdate = performance.now();
-            startFaceoffPause();
+    // Auto-restart after delay
+    if (Date.now() >= gameOverAutoStartAt) {
+        TRAINING_MODE = false;
+        stopTraining();
 
-            return requestAnimationFrame(loop);
+        gameState = 'playing';
+        timeRemaining = GAME_DURATION_SECONDS;
+        scoreTeam0 = 0;
+        scoreTeam1 = 0;
+        lastGameTimeUpdate = performance.now();
+        resetPlayersToSpawn();
+        startFaceoffPause();
+        // NO requestAnimationFrame here – the normal loop continues below
+    } else {
+        // Still showing game-over screen
+        if (!TRAINING_MODE || WATCH_MODE) {
+            renderFrame();
+            drawGameOverOverlay();
         }
-
-        // still in game over → draw screen
-        handleGameOver(now);
-        requestAnimationFrame(loop);
-        return;
     }
+
+    requestAnimationFrame(loop);   // ONE call only
+    return;
+}
 
     // PAUSE FOR PUCK-OUT-OF-PLAY (simple pause)
     if (performance.now() < puckOutPauseUntil) {
@@ -3761,57 +3749,7 @@ function loop(now) {
 
 
 
-// =========================================================
-// FAST TRAINING LOOP (Phase 4.5)
-// =========================================================
-function trainingLoop() {
-    if (!TRAINING_MODE) return;
 
-    TRAIN_EPISODE_ACTIVE = true;
-
-    // Adjust speed depending on watch mode
-    const STEPS_PER_TICK = WATCH_MODE ? 1 : 100;
-
-    // assignRolesForTeam(0);
-    // assignRolesForTeam(1);
-
-
-    for (let i = 0; i < STEPS_PER_TICK; i++) {
-        puck.update();
-        if (puckEscapedRink()) handlePuckEscape();
-
-        trainingTick(performance.now());
-        trainingAutoEnd();
-
-        if (puckStealCooldown > 0) puckStealCooldown--;
-
-        checkGoal();
-        if (checkGoalieFreeze()) resetAfterGoal(-1);  
-        if (goalResetTimer && performance.now() >= goalResetTimer)
-            doGoalReset();
-
-        for (const p of players) {
-            updatePlayer(p);
-            enforcePlayerWalls(p);
-        }
-
-        resolvePlayerCollisions();
-    }
-
-    ticksSinceLastGoal++;
-    if (ticksSinceLastGoal > FAILSAFE_MAX_TICKS) {
-        console.warn("⚠️ Failsafe triggered — resetting episode.");
-        resetAfterGoal(-1);  // Use -1 to signify no team scored
-        ticksSinceLastGoal = 0;
-    }
-
-    // Schedule next run, with delay if WATCH_MODE is on
-    if (gameState !== 'menu') {
-        trainingTimeoutId = setTimeout(trainingLoop, WATCH_MODE ? 16 : 0);
-    } else {
-        trainingTimeoutId = null;
-    }
-}
 
 
 
