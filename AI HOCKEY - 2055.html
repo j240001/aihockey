@@ -429,14 +429,14 @@ function handleOptionsInput(e) {
 // =========================================================
 // GAME CLOCK AND SCORE GLOBALS
 // =========================================================
-const GAME_DURATION_SECONDS = 60; // seconds
+const GAME_DURATION_SECONDS = 90; // seconds
 let timeRemaining = GAME_DURATION_SECONDS;
 let lastGameTimeUpdate = performance.now();
 
 // MULTI-PERIOD SYSTEM
 let currentPeriod = 1;
 const TOTAL_PERIODS = 3;
-const PERIOD_LENGTH_SECONDS = 60; // same as GAME_DURATION_SECONDS
+const PERIOD_LENGTH_SECONDS = 90; // same as GAME_DURATION_SECONDS
 
 let periodMessage = ""; 
 let periodMessageUntil = 0;
@@ -1041,9 +1041,9 @@ function makePlayer({id, team, type, isHuman, x, y, angle}) {
         vx: 0,
         vy: 0,
         size: (type === "goalie") ? 13 : 12,
-        maxSpeed: (type === "goalie") ? 1.3 : 2.4,
+        maxSpeed: (type === "goalie") ? 1.3 : 2.2,
         turnRate: (type === "goalie") ? 0.0 : 0.06,
-        friction: 0.015,
+        friction: 0.018,
         holdTimer: 0,
 
         brain: {
