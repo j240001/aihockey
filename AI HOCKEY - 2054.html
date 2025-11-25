@@ -33,7 +33,7 @@ const menuItems = ["New Game", "Options", "Exit"];
 // CONFIGURATION GLOBALS
 // =========================================================
 let OPT_SKATERS = 3;         // Default to 3 vs 3
-let OPT_HUMAN_TEAM = 0;      // 0 = Blue, 1 = Red, -1 = Watch Mode
+let OPT_HUMAN_TEAM = -1;      // 0 = Blue, 1 = Red, -1 = Watch Mode
 let optionsIndex = 0;        // Current selection in Options Menu
 const optionsItems = ["Skaters", "Human Team", "Back"];
 
@@ -354,12 +354,12 @@ function drawOptionsMenu() {
     ctx.fillText(`Skaters per Team: < ${OPT_SKATERS} >`, W / 2, 260);
 
     // 2. Human Team
-    let teamName = "Spectator (AI only)";
-    if (OPT_HUMAN_TEAM === 0) teamName = "Blue Team (Left)";
-    if (OPT_HUMAN_TEAM === 1) teamName = "Red Team (Right)";
+    let teamName = "AI only";
+    if (OPT_HUMAN_TEAM === 0) teamName = "Join Blue Team";
+    if (OPT_HUMAN_TEAM === 1) teamName = "Join Orange Team";
     
     ctx.fillStyle = (optionsIndex === 1) ? "#2255ff" : "#bbb";
-    ctx.fillText(`Human Control: < ${teamName} >`, W / 2, 320);
+    ctx.fillText(`Control: < ${teamName} >`, W / 2, 320);
 
     // 3. Back
     ctx.fillStyle = (optionsIndex === 2) ? "#2255ff" : "#bbb";
@@ -419,14 +419,14 @@ function handleOptionsInput(e) {
 // =========================================================
 // GAME CLOCK AND SCORE GLOBALS
 // =========================================================
-const GAME_DURATION_SECONDS = 1200; // seconds
+const GAME_DURATION_SECONDS = 120; // seconds
 let timeRemaining = GAME_DURATION_SECONDS;
 let lastGameTimeUpdate = performance.now();
 
 // MULTI-PERIOD SYSTEM
 let currentPeriod = 1;
 const TOTAL_PERIODS = 3;
-const PERIOD_LENGTH_SECONDS = 1200; // same as GAME_DURATION_SECONDS
+const PERIOD_LENGTH_SECONDS = 120; // same as GAME_DURATION_SECONDS
 
 let periodMessage = ""; 
 let periodMessageUntil = 0;
