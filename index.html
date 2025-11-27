@@ -5281,95 +5281,6 @@ function loadAI() {
 
 
 
-function handleInput(e) {
-    // Prevent scrolling when tapping
-    if (e.type === 'touchstart') e.preventDefault();
-
-    // 1. Get exact click coordinates scaled to Canvas (1000x600)
-    const rect = canvas.getBoundingClientRect();
-    let clientX = e.clientX;
-    let clientY = e.clientY;
-    
-    // If touch event, get the first finger
-    if (e.touches && e.touches.length > 0) {
-        clientX = e.touches[0].clientX;
-        clientY = e.touches[0].clientY;
-    } else if (e.changedTouches && e.changedTouches.length > 0) {
-        clientX = e.changedTouches[0].clientX;
-        clientY = e.changedTouches[0].clientY;
-    }
-
-    // Scale DOM coordinates to Canvas resolution (1000x600)
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    
-    const x = (clientX - rect.left) * scaleX;
-    const y = (clientY - rect.top) * scaleY;
-
-    // =====================================================
-    // STATE: MAIN MENU
-    // =====================================================
-    if (gameState === 'menu') {
-        // *** MOBILE SHORTCUT ***
-        // If this is a tap, ignore buttons and just START.
-        if (e.type === 'touchstart') {
-            activateMenuItem("New Game");
-            return;
-        }
-
-        // Desktop Mouse Logic (Keep existing button precision)
-        if (x > 340 && x < 660) {
-            if (y > 260 && y < 300) activateMenuItem("New Game");
-            if (y > 300 && y < 340) {
-                gameState = "options";
-                optionsIndex = 0; 
-            }
-            if (y > 340 && y < 380) activateMenuItem("Exit");
-        }
-        return;
-    }
-
-    // =====================================================
-    // STATE: OPTIONS
-    // =====================================================
-    if (gameState === 'options') {
-        if (y > 240 && y < 280) {
-            OPT_SKATERS++;
-            if (OPT_SKATERS > 5) OPT_SKATERS = 1;
-            optionsIndex = 0; 
-        }
-        if (y > 300 && y < 340) {
-            OPT_HUMAN_TEAM++;
-            if (OPT_HUMAN_TEAM > 1) OPT_HUMAN_TEAM = -1;
-            optionsIndex = 1; 
-        }
-        if (y > 380 && y < 420) {
-            gameState = "menu";
-            menuIndex = 0;
-        }
-        return;
-    }
-
-    // =====================================================
-    // STATE: GAME OVER
-    // =====================================================
-    if (gameState === 'gameover') {
-        gameState = "menu";
-        return;
-    }
-
-    // =====================================================
-    // STATE: PLAYING / TRAINING
-    // =====================================================
-    if (gameState === 'playing' || gameState === 'training') {
-        // Invisible "Exit" Button in Bottom Right Corner
-        // Box: x 850-1000, y 500-600
-        if (x > 850 && y > 500) {
-            gameState = "menu";
-            stopTraining(); 
-        }
-    }
-}
 
 
 
@@ -5578,6 +5489,41 @@ rinkImg.onload = () => { // <--- CORRECTED
     // start render loop (60 fps max)
     requestAnimationFrame(loop);
 };
+
+
+
+// =========================================================
+// TOUCH INPUT HANDLER (MOBILE ONLY)
+// =========================================================
+
+// 1. Set the trap (Event Listener)
+// This tells the browser: "When a touch happens, run handleInput"
+canvas.addEventListener('touchstart', handleInput, {passive: false});
+
+// 2. Define what happens when the trap is sprung
+function handleInput(e) {
+    if (e.type !== 'touchstart') return;
+    e.preventDefault(); // Stop scrolling
+
+    // MENU: Start Game
+    if (gameState === 'menu') {
+        activateMenuItem("New Game");
+        return;
+    }
+
+    // GAME OVER: Reset
+    if (gameState === 'gameover') {
+        gameState = "menu";
+        return;
+    }
+
+    // OPTIONS: Back
+    if (gameState === 'options') {
+        gameState = "menu";
+        menuIndex = 0;
+        return;
+    }
+}
 
 
 
