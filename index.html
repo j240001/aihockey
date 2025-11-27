@@ -3,16 +3,25 @@
 <head>
 <meta charset="UTF-8">
 <title>AI Hockey Unified - Full Rink</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
-    body {
-        background:#111;
-        margin:0;
-        overflow:hidden;
+    body, html {
+        background: #111;
+        margin: 0;
+        padding: 0;
+        overflow: hidden; /* Kills the scroll bars */
+        width: 100%;
+        height: 100%;
+        touch-action: none; /* Disables double-tap to zoom */
     }
     canvas {
-        background:#000;
-        display:block;
-        margin:0 auto;
+        background: #000;
+        display: block;
+        margin: 0 auto;
+        /* Optional: Force canvas to fit width if needed */
+        /* width: 100%; */
     }
 </style>
 </head>
