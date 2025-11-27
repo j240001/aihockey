@@ -1572,12 +1572,11 @@ const puck = {
                         }
 
                         
-                        // Old: 0.9 - (speed * 0.05)
-                        // Current (0.6): 60% chance to catch a slow puck.
-                        // Increase (e.g., 0.9): Goalie catches almost everything moving slowly.
-                        // Decrease (e.g., 0.3): Goalie kicks out rebounds even on soft shots.
-                        // shotspeed value:  higher (0.15 makes the goalie miss more shots at higher speeds)
-                        let catchChance = Math.max(0, 0.6 - (shotSpeed * 0.05));
+                        // --- 3. CATCH VS REBOUND (BUTTERFINGERS UPDATE) ---
+                        // Old Base: 0.3
+                        // New Base: 0.1 (10% max chance to catch)
+                        // Speed Penalty: 0.1 (Any shot > speed 1.0 is IMPOSSIBLE to catch)
+                        let catchChance = Math.max(0, 0.1 - (shotSpeed * 0.10));
 
                         if (Math.random() < catchChance) {
                             this.ownerId = g.id;
@@ -1588,24 +1587,28 @@ const puck = {
                             return; // Stop physics
                         }
 
-                        // --- 3. REBOUND (RANDOMIZED & MUFFLED) ---
+                        // --- 4. REBOUND PHYSICS ---
                         const nx = (this.x - g.x) / d;
                         const ny = (this.y - g.y) / d;
+                        
+                        // Move puck out of goalie radius
                         this.x = g.x + nx * minD;
                         this.y = g.y + ny * minD;
 
+                        // Reflect vector
                         const dot = this.vx * nx + this.vy * ny;
                         this.vx -= 2 * dot * nx;
                         this.vy -= 2 * dot * ny;
 
-                        // A. ABSORPTION (Muffling)
-                        // 20% to 50% energy retention creates dead rebounds
-                        const padDampening = 0.10 + Math.random() * 0.30;
+                        // REBOUND FORCE
+                        // Make rebounds energetic so they clear the crease (don't get re-caught)
+                        // Retain 40% to 80% of speed
+                        const padDampening = 0.4 + Math.random() * 0.4;
                         this.vx *= padDampening;
                         this.vy *= padDampening;
 
-                        // B. DEFLECTION SPREAD (Random Angle)
-                        const spread = (Math.random() - 0.5) * 1.2; 
+                        // Deflection Spread (Chaos)
+                        const spread = (Math.random() - 0.5) * 1.5; 
                         const cos = Math.cos(spread);
                         const sin = Math.sin(spread);
                         
@@ -1663,74 +1666,105 @@ function tryPickupPuck(p) {
 
     const dx = puck.x - p.x;
     const dy = puck.y - p.y;
-    // Interaction distance (Size + Puck Radius + Buffer)
     const interactDist = p.size/2 + puck.r + 5;
 
     if (dx*dx + dy*dy <= interactDist*interactDist) {
         
-        // === PHYSICS CHECK: IS THIS A HARD SHOT? ===
+        // check speed
         const puckSpeed = Math.hypot(puck.vx, puck.vy);
         
-        // CHECK: Is this a pass from a teammate?
-        let isTeammatePass = false;
+        // Identify Relationship
+        let isTeammate = false;
         if (puck.lastOwnerId) {
             const prevOwner = getPlayerById(puck.lastOwnerId);
-            if (prevOwner && prevOwner.team === p.team) {
-                isTeammatePass = true;
-            }
+            if (prevOwner && prevOwner.team === p.team) isTeammate = true;
         }
 
-        // Threshold: If speed > 2.5 AND it is NOT a teammate pass, it's a deflection.
-        if (puckSpeed > 2.5 && !isTeammatePass) {
+        // ================================================================
+        // SCENARIO A: IT IS A SHOT (High Velocity, Intended for Net)
+        // ================================================================
+        if (puck.isShot && puckSpeed > 2.5) {
             
-            // --- CHANGE 1: THE "SCREEN/THROUGH" CHECK ---
-            // 25% chance the puck passes right through the skater (legs, under stick, etc)
-            // Adjust 0.25 to make them block more or less often.
-            if (Math.random() < 0.25) {
-                return; // Do nothing (let it fly)
-            }
+            // 1. SCREEN LOGIC (93% Ghosting)
+            // Unless it's a teammate trying to tip it? (Future feature)
+            // For now, let's assume teammates get out of the way too.
+            if (Math.random() > 0.07) return; 
 
-            // 1. Calculate Bounce Normal
+            // 2. BLOCK LOGIC (7% Hit)
+            // Reflect & Dampen
             const dist = Math.sqrt(dx*dx + dy*dy);
             const nx = dx / dist; 
             const ny = dy / dist; 
-
-            // 2. Reflect Velocity
             const dot = puck.vx * nx + puck.vy * ny;
             puck.vx = puck.vx - 2 * dot * nx;
             puck.vy = puck.vy - 2 * dot * ny;
-
-            // --- CHANGE 2: ABSORPTION (SOFT TARGET) ---
-            // Previously 0.3 to 0.5. Now 0.10 to 0.25.
-            // This kills the energy. It hits the shin pad and drops dead.
-            const dampening = 0.10 + Math.random() * 0.15; 
+            
+            // Dead dampening (Block)
+            const dampening = 0.2 + Math.random() * 0.2; 
             puck.vx *= dampening;
             puck.vy *= dampening;
-
-            // --- CHANGE 3: WILD DEFLECTION ---
-            // Previously 1.0. Now 2.0.
-            // Much wider variance in where the puck flies after hitting a body.
-            const deflectionSpread = (Math.random() - 0.5) * 2.0; 
-            const cos = Math.cos(deflectionSpread);
-            const sin = Math.sin(deflectionSpread);
             
-            const newVX = puck.vx * cos - puck.vy * sin;
-            const newVY = puck.vx * sin + puck.vy * cos;
+            // Chaos deflection
+            const spread = (Math.random() - 0.5) * 2.5; 
+            const cos = Math.cos(spread);
+            const sin = Math.sin(spread);
+            const nvx = puck.vx * cos - puck.vy * sin;
+            const nvy = puck.vx * sin + puck.vy * cos;
+            puck.vx = nvx; puck.vy = nvy;
             
-            puck.vx = newVX;
-            puck.vy = newVY;
-
-            // 5. Push puck out
+            // Push out
             puck.x = p.x + nx * (interactDist + 2);
             puck.y = p.y + ny * (interactDist + 2);
-
             return;
         }
 
-        // === NORMAL PICKUP (Catch the pass) ===
-        puck.ownerId = p.id;
-        puck.vx = 0;
-        puck.vy = 0;
+        // ================================================================
+        // SCENARIO B: IT IS A PASS / LOOSE PUCK
+        // ================================================================
+        
+        // 1. TEAMMATE RECEPTION (High Skill)
+        if (isTeammate) {
+            // 95% Chance to catch clean
+            if (Math.random() < 0.95) {
+                puck.ownerId = p.id;
+                puck.vx = 0; puck.vy = 0;
+                return;
+            } 
+            // 5% Chance to fumble (Bobble)
+            // (Fall through to "Bobble" logic below)
+        }
+
+        // 2. OPPONENT INTERCEPTION (Defense)
+        if (!isTeammate) {
+            // 40% Chance to Steal Clean (Pickpocket)
+            if (Math.random() < 0.40) {
+                puck.ownerId = p.id;
+                puck.vx = 0; puck.vy = 0;
+                return;
+            }
+            // 60% Chance to Knock Down (Bobble)
+            // We treat this like a block but softer.
+        }
+
+        // 3. THE "BOBBLE" (Knock Down / Fumble)
+        // If we didn't catch it clean, we knock it dead.
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        const nx = dx / dist; 
+        const ny = dy / dist; 
+        
+        const dot = puck.vx * nx + puck.vy * ny;
+        puck.vx = puck.vx - 2 * dot * nx;
+        puck.vy = puck.vy - 2 * dot * ny;
+        
+        // Soft deadening
+        puck.vx *= 0.3;
+        puck.vy *= 0.3;
+        
+        puck.x = p.x + nx * (interactDist + 2);
+        puck.y = p.y + ny * (interactDist + 2);
+        
+        // Clear the shot flag so it becomes a loose puck
+        puck.isShot = false; 
     }
 }
 
@@ -1815,9 +1849,15 @@ function passPuckToTeammate(p, target) {
 
 
 function tryStealPuck(attacker, owner) {
-    // already cooling down
+    // --- 1. GOALIE IMMUNITY (THE FIX) ---
+    // If the goalie has established possession, it is unstealable.
+    // The attacker must wait for a pass or a whistle.
+    if (owner.type === "goalie") return false;
+
+    // --- 2. COOLDOWN CHECK ---
     if (puckStealCooldown > 0) return false;
 
+    // --- 3. DISTANCE CHECK ---
     const dx = attacker.x - owner.x;
     const dy = attacker.y - owner.y;
 
@@ -2826,24 +2866,15 @@ function thinkTeam1(p) {
     // TEAM 1 MIXER BOARD
     // =========================================================================
     const T1 = {
-        // --- OFFENSE ---
-        // Range: Distance from net to consider shooting. (300 = Top of circles)
-        // If they are further than this, THEY WILL SKATE instead of shooting.
-        shot_range_forwards: 150,   
-        shot_range_defender: 250,   
+        shot_range_forwards: 300,   
+        shot_range_defender: 500,   
         
-        // PRESSURE SENSITIVITY
-        // How close an enemy must be to force a pass (80px = stick length)
-        // Increase to 100 for panic passing, decrease to 60 for puck hogging.
         pressure_dist: 80, 
 
-        lane_width: 100,            
-
-        // --- DEFENSE ---
+        lane_width: 130,            
         def_collapse_dist: 50,      
         def_challenge_dist: 180,    
         
-        // --- PASSING ---
         pass_min_dist: 90, 
         pass_score_forward: 30,     
         pass_score_lateral: 40,     
@@ -2852,7 +2883,7 @@ function thinkTeam1(p) {
     };
 
     // =========================================================================
-    // CONTEXT & GEOMETRY
+    // CONTEXT
     // =========================================================================
     const myGoalX = (p.team === 1) ? goal2 : goal1;
     const enemyGoalX = (p.team === 1) ? goal1 : goal2;
@@ -2887,9 +2918,7 @@ function thinkTeam1(p) {
 
     let d = { tx: p.x, ty: p.y, action: "none", target: null };
 
-    // =========================================================================
-    // POSSESSION PRIORITY OVERRIDE
-    // =========================================================================
+    // POSSESSION OVERRIDE
     if (loosePuck) {
         let myDist = Math.hypot(puck.x - p.x, puck.y - p.y);
         let amIClosest = true;
@@ -2902,9 +2931,7 @@ function thinkTeam1(p) {
             if (inDefZone) {
                 const supportY = (p.role === "S") ? RY - 30 : RY + 30;
                 return { tx: myGoalX + (forwardDir * 50), ty: supportY, action: "none" };
-            } else {
-                return { tx: RX + (forwardDir * 60), ty: myLaneY, action: "none" };
-            }
+            } else return { tx: RX + (forwardDir * 60), ty: myLaneY, action: "none" };
         }
     }
 
@@ -2913,13 +2940,11 @@ function thinkTeam1(p) {
     // =========================================================
     if (p.role === "D") {
         if (hasPuck) {
-            // 1. SHOOT
             const distGoal = Math.hypot(enemyGoalX - p.x, RY - p.y);
-            if (distGoal < T1.shot_range_defender) {
-                if (!isLaneBlocked(p.x, p.y, enemyGoalX, RY, p.team)) return { tx: enemyGoalX, ty: RY, action: "shoot" };
+            if (distGoal < T1.shot_range_defender && !isLaneBlocked(p.x, p.y, enemyGoalX, RY, p.team)) {
+                 return { tx: enemyGoalX, ty: RY, action: "shoot" };
             }
 
-            // 2. PRESSURE CHECK
             let underPressure = false;
             for(const o of players) {
                 if(o.team !== p.team && Math.hypot(o.x - p.x, o.y - p.y) < T1.pressure_dist) {
@@ -2927,52 +2952,31 @@ function thinkTeam1(p) {
                 }
             }
 
-            // 3. PASSING (Only if pressured)
             if (underPressure || Math.random() < 0.05) { 
                 let bestMate = null;
                 let bestScore = -999;
                 for (const m of skaters) {
                     if (m === p || m.passCooldown > 0) continue;
                     if (Math.hypot(m.x-p.x, m.y-p.y) < T1.pass_min_dist) continue;
-
                     if (!isLaneBlocked(p.x, p.y, m.x, m.y, p.team)) {
                         let score = 100 - Math.abs(Math.hypot(m.x - p.x, m.y - p.y) - 200);
                         if (Math.abs(m.x - enemyGoalX) < Math.abs(p.x - enemyGoalX)) score += 50;
-                        
                         let isCovered = false;
                         for(const o of players) { if(o.team !== p.team && Math.hypot(m.x-o.x, m.y-o.y) < 60) isCovered = true; }
                         if(isCovered) continue;
-
                         if (score > bestScore) { bestScore = score; bestMate = m; }
                     }
                 }
                 if (bestMate) return { tx: bestMate.x, ty: bestMate.y, action: "pass", target: bestMate };
             }
-
-            // 4. EVASIVE CARRY
             const evasive = findBestCarryLane(p, enemyGoalX);
             return { tx: evasive.x, ty: evasive.y, action: "none" };
         } 
         
         else if (oppHasPuck) {
-            // AGGRESSIVE GAP CONTROL
-            const dx = carrier.x - myGoalX;
-            const dy = carrier.y - RY;
-            const distNetToCarrier = Math.hypot(dx, dy);
-            const distMeToCarrier = Math.hypot(carrier.x - p.x, carrier.y - p.y);
-
-            // KILL ZONE
-            if (distMeToCarrier < 60) return { tx: carrier.x, ty: carrier.y, action: "none" };
-
-            // VECTOR POSITIONING
-            const angle = Math.atan2(dy, dx);
-            // Stand 45px in front of the carrier's face
-            let defendDist = distNetToCarrier - 45;
-            defendDist = Math.max(40, Math.min(220, defendDist)); // Clamp
-
-            const tx = myGoalX + Math.cos(angle) * defendDist;
-            const ty = RY + Math.sin(angle) * defendDist;
-            return { tx: tx, ty: ty, action: "none" };
+            // *** VECTOR GAP CONTROL (FIXED) ***
+            // Uses the helper to stay on the line between net and carrier
+            return getAggressiveGapTarget(p, carrier, myGoalX);
         }
         else if (defensiveEmergency && inDefZone) {
              let squatter = players.find(o => o.team !== p.team && Math.hypot(o.x - myGoalX, o.y - RY) < 70);
@@ -2989,14 +2993,12 @@ function thinkTeam1(p) {
         if (hasPuck) {
             const distGoal = Math.hypot(enemyGoalX - p.x, RY - p.y);
             
-            // 1. SHOOT
             if (distGoal < T1.shot_range_forwards) {
                 if (distGoal < 220 || !isLaneBlocked(p.x, p.y, enemyGoalX, RY, p.team)) {
                     return { tx: enemyGoalX, ty: RY, action: "shoot" };
                 }
             }
             
-            // 2. PRESSURE CHECK
             let underPressure = false;
             for(const o of players) {
                 if(o.team !== p.team && Math.hypot(o.x - p.x, o.y - p.y) < T1.pressure_dist) {
@@ -3004,20 +3006,19 @@ function thinkTeam1(p) {
                 }
             }
 
-            // 3. LANE CHECK (Blocked Ahead?)
-            // We assume if we aren't shooting, we are trying to carry to the net
+            let targetY = myLaneY;
+            if (distGoal < 250) targetY = RY; 
             let blockedAhead = false;
             for(const o of players) {
                 if(o.team !== p.team && Math.hypot(o.x - p.x, o.y - p.y) < 70) {
-                    // Simple dot product check for "in front"
                     const dx = o.x - p.x;
                     const dy = o.y - p.y;
                     const moveX = enemyGoalX - p.x;
-                    if ((dx * moveX) > 0) blockedAhead = true;
+                    const moveY = targetY - p.y;
+                    if ((dx * moveX + dy * moveY) > 0) blockedAhead = true;
                 }
             }
 
-            // 4. PASSING (Only if Pressured or Blocked)
             if (underPressure || blockedAhead) {
                 let bestMate = null;
                 let bestScore = 0; 
@@ -3028,7 +3029,6 @@ function thinkTeam1(p) {
                     if (Math.hypot(m.x-p.x, m.y-p.y) < T1.pass_min_dist) continue;
 
                     if (!isLaneBlocked(p.x, p.y, m.x, m.y, p.team)) {
-                        // Safety Check
                         let isCovered = false;
                         for(const o of players) { if(o.team !== p.team && Math.hypot(m.x-o.x, m.y-o.y) < 60) isCovered = true; }
                         if(isCovered) continue; 
@@ -3036,17 +3036,31 @@ function thinkTeam1(p) {
                         let score = 10;
                         if ((p.role === "S" && m.role === "P") || (p.role === "P" && m.role === "S")) score += T1.pass_score_lateral;
                         if (Math.hypot(m.x - enemyGoalX, m.y - RY) < distGoal) score += T1.pass_score_forward;
-                        if (m.role === "D" && inOffZone) score += T1.pass_score_point;
-
+                        
+                        // --- ZONE LOGIC ---
                         let mateZoneIdx = 1;
                         const mDef = attackingRight ? (m.x < defBlueLine) : (m.x > defBlueLine);
                         const mOff = attackingRight ? (m.x > offBlueLine) : (m.x < offBlueLine);
                         if (mDef) mateZoneIdx = 0; if (mOff) mateZoneIdx = 2;
                         
                         if (mateZoneIdx < myZoneIdx) {
-                            if (myZoneIdx === 2 && m.role === "D") score -= 5; 
-                            else score -= T1.pass_penalty_back;
+                            // STRICT CYCLE RULE:
+                            // Only allow passing to D if he is in Neutral Zone (1).
+                            // If he is in Defensive Zone (0), FORBID IT.
+                            if (myZoneIdx === 2 && m.role === "D" && mateZoneIdx === 1) {
+                                score += T1.pass_score_point;
+                            } else {
+                                score -= T1.pass_penalty_back;
+                            }
                         }
+                        
+                        // --- NEW: LONG DISTANCE VETO ---
+                        // Calculate relative distance along the ice length
+                        const forwardRel = (m.x - p.x) * forwardDir;
+                        // If pass is more than 200px BACKWARD, veto it.
+                        if (forwardRel < -200) score -= 200; 
+                        // -------------------------------
+
                         if (inDefZone && Math.hypot(m.x-myGoalX, m.y-RY) < 120) score -= 100; 
 
                         if (score > bestScore) { bestScore = score; bestMate = m; }
@@ -3055,12 +3069,10 @@ function thinkTeam1(p) {
                 if (bestMate) return { tx: bestMate.x, ty: bestMate.y, action: "pass", target: bestMate };
             }
 
-            // 5. EVASIVE CARRY (Default)
             const evasive = findBestCarryLane(p, enemyGoalX);
             return { tx: evasive.x, ty: evasive.y, action: "none" };
         }
         
-        // --- OFF-PUCK BEHAVIOR ---
         else {
             if (teamHasPuck && !inDefZone) return { tx: carrier.x + (forwardDir * 40), ty: myLaneY, action: "none" };
             if (teamHasPuck && inDefZone) return { tx: defBlueLine, ty: myLaneY, action: "none" };
