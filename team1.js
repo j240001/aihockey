@@ -6,8 +6,6 @@ const T1 = {
     shot_range_forwards: 250,   
     shot_range_defender: 400,   
     pressure_dist: 45, 
-    lane_width: 130,            
-    pass_min_dist: 90, 
     shot_greed: 0.02,   
 };
 
@@ -60,17 +58,25 @@ function thinkTeam1(p) {
     
     ctx.myLaneY = RY + ((p.laneBias || 0) * 80);
 
-    // --- GOLDEN RULE: CLOSEST MAN INTERCEPTS ---
+    // =========================================================
+    // *** GOLDEN RULE: CLOSEST MAN INTERCEPTS ***
+    // =========================================================
     if (ctx.loosePuck) {
         let myDist = Math.hypot(puck.x - p.x, puck.y - p.y);
         let amIClosest = true;
+        
         for (const mate of skaters) {
             if (mate.id !== p.id) {
                 const dist = Math.hypot(puck.x - mate.x, puck.y - mate.y);
-                if (dist < myDist) { amIClosest = false; break; }
+                if (dist < myDist) { 
+                    amIClosest = false; 
+                    break; 
+                }
             }
         }
+
         if (amIClosest) {
+            // *** PREDICTIVE CHASE ***
             const target = getPuckIntercept(p);
             return { tx: target.x, ty: target.y, action: "none" };
         }
@@ -84,6 +90,7 @@ function thinkTeam1(p) {
         return { tx: tx, ty: ty, action: "none" };
     }
 
+    // --- DISPATCH ---
     if (p.role === "Defender") return runDefender(p, ctx, skaters);
     if (p.role === "Winger")   return runWinger(p, ctx, skaters);
     if (p.role === "Attacker") return runAttacker(p, ctx, skaters);
@@ -112,9 +119,14 @@ function runDefender(p, ctx, skaters) {
     } 
 
     if (ctx.loosePuck) {
+        // If Golden Rule didn't trigger, I am NOT closest.
+        // Even if not closest, if it's near me, try to intercept
         const target = getPuckIntercept(p);
         const distToIntercept = Math.hypot(target.x - p.x, target.y - p.y);
+        
+        // If I can get there quickly, do it. Otherwise stay back.
         if (distToIntercept < 100) return { tx: target.x, ty: target.y, action: "none" };
+        
         return { tx: RX - (ctx.forwardDir * 50), ty: RY, action: "none" };
     }
 
@@ -139,10 +151,12 @@ function runDefender(p, ctx, skaters) {
 // =========================================================
 function runWinger(p, ctx, skaters) {
     if (ctx.loosePuck) {
+        // Predictive Chase in Defensive Zone
         if (ctx.inDefZone) {
             const target = getPuckIntercept(p);
             return { tx: target.x, ty: target.y, action: "none" };
         }
+        // Crash Net in Offensive Zone
         if (ctx.inOffZone) return { tx: ctx.enemyGoalX, ty: RY, action: "none" };
     }
     return runGenericForward(p, ctx, skaters);
@@ -165,38 +179,14 @@ function runGenericForward(p, ctx, skaters) {
     if (ctx.hasPuck) {
         const distGoal = Math.hypot(ctx.enemyGoalX - p.x, RY - p.y);
 
-        // A. Greed
         if (distGoal < 350 && Math.random() < T1.shot_greed) return { tx: ctx.enemyGoalX, ty: RY, action: "shoot" };
 
-        // B. Smart Shot
-        let shotBlocked = isLaneBlocked(p.x, p.y, ctx.enemyGoalX, RY, p.team);
-        
-        if (distGoal < T1.shot_range_forwards && !shotBlocked) {
-            return { tx: ctx.enemyGoalX, ty: RY, action: "shoot" };
-        }
-        
-        // ============================================================
-        // *** NEW: SURGICAL ONE-TIMER CHECK ***
-        // Only runs if I have the puck and my shot is blocked/too far.
-        // ============================================================
-        if (ctx.inOffZone) {
-            // 1. Look for the other forward
-            const partner = skaters.find(s => s.team === p.team && s.id !== p.id && (s.role === "Winger" || s.role === "Attacker"));
-            
-            if (partner) {
-                // 2. Is he open?
-                if (!isLaneBlocked(p.x, p.y, partner.x, partner.y, p.team)) {
-                    // 3. Does HE have a clear shot?
-                    if (!isLaneBlocked(partner.x, partner.y, ctx.enemyGoalX, RY, p.team)) {
-                        // 4. Set him up! (Ignore possession timer for this play)
-                        return { tx: partner.x, ty: partner.y, action: "pass", target: partner };
-                    }
-                }
+        if (distGoal < T1.shot_range_forwards) {
+            if (distGoal < 220 || !isLaneBlocked(p.x, p.y, ctx.enemyGoalX, RY, p.team)) {
+                return { tx: ctx.enemyGoalX, ty: RY, action: "shoot" };
             }
         }
-        // ============================================================
-
-        // C. Standard Pressure Checks
+        
         let blockedAhead = false;
         let underPressure = false;
         
@@ -212,7 +202,6 @@ function runGenericForward(p, ctx, skaters) {
             }
         }
 
-        // D. Passing (Strategic)
         if (p.possessionTime > 15) {
             if (blockedAhead || underPressure) {
                 const mate = findSmartPass(p, ctx);
@@ -220,7 +209,6 @@ function runGenericForward(p, ctx, skaters) {
             }
         }
 
-        // E. Movement
         if (blockedAhead) {
             const evadeY = (p.y < RY) ? RY + 80 : RY - 80;
             return { tx: ctx.enemyGoalX, ty: evadeY, action: "none" };
@@ -231,12 +219,11 @@ function runGenericForward(p, ctx, skaters) {
         }
     }
 
-    // LOOSE PUCK
+    // LOOSE PUCK (If not closest)
     if (ctx.loosePuck) {
         return { tx: RX + (ctx.forwardDir * 60), ty: ctx.myLaneY, action: "none" };
     }
 
-    // TEAMMATE HAS PUCK
     if (ctx.carrier && ctx.carrier.team === p.team) {
         if (ctx.inDefZone) {
             return { tx: ctx.carrier.x + (ctx.forwardDir * 60), ty: ctx.myLaneY, action: "none" };
@@ -249,7 +236,6 @@ function runGenericForward(p, ctx, skaters) {
         }
     }
 
-    // OPPONENT HAS PUCK
     if (ctx.oppHasPuck) {
         const distToNet = Math.hypot(p.x - ctx.myGoalX, p.y - RY);
         const carrierDistToNet = Math.hypot(ctx.carrier.x - ctx.myGoalX, ctx.carrier.y - RY);
@@ -273,21 +259,28 @@ function getPuckIntercept(p) {
     const puckSpeed = Math.hypot(puck.vx, puck.vy);
     const mySpeed = 2.2; 
     
+    // *** FIX: AGGRESSIVE PROJECTION ***
+    // If puck is slow (< 1.5), don't predict. Go to where it is NOW.
+    // This stops them from waiting for the puck to glide to them.
     if (puckSpeed < 1.5) {
         return { x: puck.x, y: puck.y };
     }
 
+    // Normal Prediction for fast pucks
     let framesToReach = dist / mySpeed;
     if (framesToReach > 60) framesToReach = 60; 
 
     let tx = puck.x + puck.vx * framesToReach;
     let ty = puck.y + puck.vy * framesToReach;
 
+    // Clamp to Rink
     tx = Math.max(120, Math.min(880, tx));
     ty = Math.max(170, Math.min(430, ty));
 
     return { x: tx, y: ty };
 }
+
+
 
 function findSmartPass(p, ctx) {
     let best = null;
@@ -297,30 +290,14 @@ function findSmartPass(p, ctx) {
 
     for (const mate of skaters) {
         const isForward = (mate.x - p.x) * ctx.forwardDir > 0;
-        
-        // --- CALCULATE DISTANCE ONCE (Fixes the error) ---
-        const myDistToGoal = Math.abs(p.x - ctx.enemyGoalX);
-
-        // --- SAFETY RULES ---
-        
-        // Rule 1: No backward passes in Def/Neutral Zone
         if (!ctx.inOffZone && !isForward) continue; 
-
-        // Rule 2: No backward passes if I am in Scoring Range (< 250px)
-        if (ctx.inOffZone && myDistToGoal < 250 && !isForward) continue;
-
-        // --------------------
-
         if (isLaneBlocked(p.x, p.y, mate.x, mate.y, p.team)) continue;
 
-        // --- SCORING ---
         let score = 0;
-        
-        // Reward passing to someone closer to net
+        const myDistToGoal = Math.abs(p.x - ctx.enemyGoalX);
         const mateDistToGoal = Math.abs(mate.x - ctx.enemyGoalX);
         score += (myDistToGoal - mateDistToGoal); 
 
-        // Reward Openness
         let nearestEnemy = 999;
         for (const o of players) {
             if (o.team !== p.team) {
