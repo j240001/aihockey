@@ -297,20 +297,30 @@ function findSmartPass(p, ctx) {
 
     for (const mate of skaters) {
         const isForward = (mate.x - p.x) * ctx.forwardDir > 0;
+        
+        // --- CALCULATE DISTANCE ONCE (Fixes the error) ---
+        const myDistToGoal = Math.abs(p.x - ctx.enemyGoalX);
+
+        // --- SAFETY RULES ---
+        
+        // Rule 1: No backward passes in Def/Neutral Zone
         if (!ctx.inOffZone && !isForward) continue; 
 
-        // Rule 2: If I am in Scoring Range (< 250px), DO NOT pass backward.
-        const myDistToGoal = Math.abs(p.x - ctx.enemyGoalX);
+        // Rule 2: No backward passes if I am in Scoring Range (< 250px)
         if (ctx.inOffZone && myDistToGoal < 250 && !isForward) continue;
-        // ******************************
+
+        // --------------------
 
         if (isLaneBlocked(p.x, p.y, mate.x, mate.y, p.team)) continue;
 
+        // --- SCORING ---
         let score = 0;
-        const myDistToGoal = Math.abs(p.x - ctx.enemyGoalX);
+        
+        // Reward passing to someone closer to net
         const mateDistToGoal = Math.abs(mate.x - ctx.enemyGoalX);
         score += (myDistToGoal - mateDistToGoal); 
 
+        // Reward Openness
         let nearestEnemy = 999;
         for (const o of players) {
             if (o.team !== p.team) {
