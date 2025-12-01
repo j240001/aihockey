@@ -1,411 +1,358 @@
 // ==========================================
-// TEAM 0 (BLUE) - THE "OFFENSIVE TRIANGLE"
+// TEAM 0 — TOTAL OFFENSE & ONE-TIMERS
 // ==========================================
 
+const T0 = {
+    shoot_range: 250,       // Increased range (shoot from anywhere in zone)
+    guaranteed_range: 140, 
+    blue_line_offset: 110,
+    check_range: 80
+};
 
-function think(p) {
-     
-    const hasPuck = (p.id === puck.ownerId);
-    const carrier = getPuckCarrier();
-    const opponentHasPuck = (carrier && carrier.team !== p.team);
-    const loose = (puck.ownerId === null);
-
-    // CALCULATE LANE OFFSET
-    // -1 (Left) becomes -80px, 1 (Right) becomes +80px
-    const myLaneY = RY + ((p.laneBias || 0) * 80);
-
-
-// -----------------------------------------
-// ROLE C — Primary Attacker (SMARTER FORECHECK)
-// -----------------------------------------
-if (p.role === "C") {
-    const attackGoalX = (p.team === 0) ? goal2 : goal1;
-    const attackingRight = (attackGoalX > RX);
-    const dir = attackingRight ? 1 : -1;
-    const hasPuck = (p.id === puck.ownerId);
-
-    // 1. C HAS PUCK (Offense - largely unchanged)
-    if (hasPuck) {
-        // A. Behind Net Check
-        const netMove = solveBehindNet(p);
-        if (netMove) return netMove;
-
-        // B. Scoring Logic
-        const shot = evaluateShot(p);
-        if (shot.good) {
-            p.angle = Math.atan2(shot.y - p.y, shot.x - p.x);
-            return { tx: shot.x, ty: shot.y, action: "shoot", target: null };
-        }
-
-        // C. Drive / Cycle
-        const postY = (p.y < RY) ? RY - 20 : RY + 20;
-        if (!isLaneBlocked(p.x, p.y, attackGoalX, postY, p.team)) {
-            return { tx: attackGoalX, ty: postY, action: "none" };
-        }
-        return { tx: attackGoalX, ty: (p.y < RY ? RINK_MIN_Y+40 : RINK_MAX_Y-40), action: "none" };
-    }
-
-    // 2. NO PUCK (FORECHECK & DEFENSE)
+// --- BLACKBOARD ---
+function makeBB_T0(p) {
+    const myGoalX = (p.team === 0) ? goal1 : goal2;
+    const enemyGoal = (p.team === 0) ? goal2 : goal1;
+    const attackingRight = (enemyGoal > RX);
     
-    // A. LOOSE PUCK: Chase it... UNLESS it is behind the enemy net and we are blocked
-    if (puck.ownerId === null) {
-         return { tx: puck.x, ty: puck.y, action: "none" };
-    }
-
+    const distToNet = Math.hypot(enemyGoal - p.x, RY - p.y);
     const carrier = getPlayerById(puck.ownerId);
-
-    // B. OPPONENT HAS PUCK (FORECHECK)
-    if (carrier && carrier.team !== p.team) {
-        
-        // CHECK: Is the puck in OUR Defensive Zone? (Backcheck)
-        const defBlueLine = attackingRight ? LEFT_BLUE_LINE : RIGHT_BLUE_LINE;
-        const puckInDefZone = attackingRight ? (puck.x < defBlueLine) : (puck.x > defBlueLine);
-
-        if (puckInDefZone) {
-            // BACKCHECK: Go to the high slot in our own zone
-            const defendGoalX = attackingRight ? goal1 : goal2;
-            return { tx: defendGoalX + (dir * 180), ty: RY, action: "none" };
-        } 
-        else {
-            // *** SMARTER FORECHECK ***
-            // If the carrier is the GOALIE or behind the net, DO NOT SLAM INTO THEM.
-            // Park in front of the net to cut off the pass.
-            
-            const carrierIsBehind = attackingRight ? (carrier.x > attackGoalX) : (carrier.x < attackGoalX);
-            
-            if (carrierIsBehind) {
-                // Trap them! Sit on the post.
-                return { tx: attackGoalX - (dir * 40), ty: carrier.y, action: "none" };
-            }
-            
-            // Otherwise, attack the carrier
-            return { tx: carrier.x, ty: carrier.y, action: "none" };
-        }
-    }
-
-    // C. TEAMMATE HAS PUCK
-    return { tx: attackGoalX - (dir * 60), ty: RY, action: "none" };
-}
-
-
-// -----------------------------------------
-// ROLE B — PLAYMAKER (THE "HIGH MAN")
-// -----------------------------------------
-if (p.role === "B") {
-    const attackGoalX = (p.team === 0) ? goal2 : goal1;
-    const attackingRight = (attackGoalX > RX);
-    const dir = attackingRight ? 1 : -1;
-
-    // 1. HAS PUCK (Standard Playmaker Logic)
-    if (hasPuck) {
-        // ... (Keep your existing Has Puck logic here, or paste simpler version below) ...
-        let bestTapIn = null;
-        for (const mate of players) {
-            if (mate.team === p.team && mate.id !== p.id) {
-                const d = Math.hypot(attackGoalX - mate.x, RY - mate.y);
-                if (d < 120 && !isLaneBlocked(p.x, p.y, mate.x, mate.y, p.team)) bestTapIn = mate;
-            }
-        }
-        if (bestTapIn) return { tx: bestTapIn.x, ty: bestTapIn.y, action: "pass", target: bestTapIn };
-
-        // Shoot if open, otherwise cycle
-        const shot = evaluateShot(p);
-        if (shot.good) return { tx: attackGoalX, ty: RY, action: "shoot" };
-        
-        return { tx: attackGoalX, ty: RY, action: "none" };
-    }
-
-    // 2. NO PUCK (SMARTER SUPPORT)
     
-    // A. LOOSE PUCK
-    if (loose) {
-        // *** FIX FOR BONEHEAD BEHAVIOR ***
-        // If the puck is in the OFFENSIVE zone, do NOT dogpile with Role C.
-        // Stay in the "High Slot" (F3 position) to catch rebounds or prevent breakouts.
-        
-        const offBlueLine = attackingRight ? RIGHT_BLUE_LINE : LEFT_BLUE_LINE;
-        const inOffZone = attackingRight ? (puck.x > offBlueLine) : (puck.x < offBlueLine);
-        const distToPuck = Math.hypot(puck.x - p.x, puck.y - p.y);
+    const laneBlocked = isLaneBlocked(p.x, p.y, enemyGoal, RY, p.team);
 
-        if (inOffZone && distToPuck > 100) {
-            // Hover at the faceoff dots / High Slot
-            return { tx: attackGoalX - (dir * 180), ty: RY, action: "none" };
+    let amIClosest = true;
+    const myDist = Math.hypot(puck.x - p.x, puck.y - p.y);
+    for (const mate of players) {
+        if (mate.team === p.team && mate.id !== p.id && mate.type === "skater") {
+            const mateDist = Math.hypot(puck.x - mate.x, puck.y - mate.y);
+            if (mateDist < myDist) {
+                amIClosest = false; 
+                break; 
+            }
         }
-        
-        // Only chase if we are in Neutral/Defensive zone, or very close to it
-        return roleC_loosePuck(p);
     }
-
-    // B. OPPONENT HAS PUCK
-    if (opponentHasPuck) {
-        const carrier = getPuckCarrier();
-        
-        // Check Zone
-        const defBlueLine = attackingRight ? LEFT_BLUE_LINE : RIGHT_BLUE_LINE;
-        const puckInDefZone = attackingRight ? (puck.x < defBlueLine) : (puck.x > defBlueLine);
-
-        if (!puckInDefZone) {
-            // *** TRAP LOGIC ***
-            // If opponent is still in their end, DO NOT run back to our goalie.
-            // Guard the Neutral Zone / Blue Line.
-            const trapX = RX; // Center Ice
-            return { tx: trapX, ty: carrier ? carrier.y : RY, action: "none" };
-        }
-        
-        // If they cross our blue line, THEN collapse to defense
-        return roleC_supportDefense(p);
-    }
-
-    // C. TEAMMATE HAS PUCK
-    // Stay wide/high for a pass
-    const slotX = attackGoalX - (dir * 150);
-    return { tx: attackGoalX, ty: myLaneY, action: "none" };
-}
-
-
-
-// -----------------------------------
-// ROLE A — DEFENSIVE ANCHOR
-// -----------------------------------
-if (p.role === "A") {
     
-    // If Role A has the puck → do NOT skate backward, PASS immediately
-    if (hasPuck) {
+    // Zone Definitions
+    const blueLineX = attackingRight ? (RX + 110) : (RX - 110);
+    const inOffensiveZone = attackingRight ? (p.x > blueLineX) : (p.x < blueLineX);
+    const puckInOffensiveZone = attackingRight ? (puck.x > blueLineX) : (puck.x < blueLineX);
 
-        // ----------------------------------------------------------------
-        // 1. SIMPLE FORWARD PASS (Role A breakout priority)
-        // ----------------------------------------------------------------
-        let bestMate = null;
-        let bestDist = 99999;
- 
-        for (const t of players) {
-            if (t.team !== p.team) continue;
-            if (t === p) continue;
-
-            // teammate must be *in front* of Role A (offense direction)
-            const attackGoalX = (p.team === 0) ? goal2 : goal1;
-            const forward = Math.sign(attackGoalX - p.x) === Math.sign(t.x - p.x);
-
-            if (!forward) continue;
-
-            const d = Math.hypot(t.x - p.x, t.y - p.y);
-            if (d < bestDist) {
-                bestDist = d;
-                bestMate = t;
-            }
-        }
-
-        // If ANY teammate is ahead → pass to him (ignore strict rules)
-        if (bestMate) {
-            return {
-                tx: bestMate.x,
-                ty: bestMate.y,
-                action: "pass",
-                target: bestMate
-            };
-        }
-
-        // ----------------------------------------------------------------
-        // 2. Fallback to the original strict pass logic
-        // ----------------------------------------------------------------
-        const pass = evaluatePassOptions(p);
-        if (pass.good) {
-            return {
-                tx: pass.teammate.x,
-                ty: pass.teammate.y,
-                action: "pass",
-                target: pass.teammate
-            };
-        }
-
-        // ----------------------------------------------------------------
-        // 3. No pass? Move the puck slightly forward
-        // ----------------------------------------------------------------
-        const safeX = p.x + ((p.team === 0) ? 40 : -40);
-        return { tx: safeX, ty: p.y, action: "none" };
-    }
-
-
-
-        // If puck is loose → chase only if closest
-        if (loose) {
-            if (isClosestTeammateToTarget(p, puck)) {
-                return roleB_loosePuck(p);
-            }
-            return roleA_goalieProtector(p);
-        }
-
-        // If opponent has puck → protect goalie / block threat
-        if (opponentHasPuck) {
-            return roleA_goalieProtector(p);
-        }
-
-        // Teammate has puck:
-        // DO NOT join the rush — stay deeper than all opponents.
-        let lowestOpp = null;
-        let bestX = 99999;
-
-        for (const o of players) {
-            if (o.team !== p.team && o.type === "skater") {
-                if (o.x < bestX) {  // team 0 attacks right, so lowest X = most dangerous
-                    bestX = o.x;
-                    lowestOpp = o;
-                }
-            }
-        }
-
-        if (lowestOpp) {
-            // stay between lowest opponent and our own goalie
-            const gx = (p.team === 0) ? goal1 : goal2;
-            return {
-                tx: (lowestOpp.x + gx) / 2,
-                ty: (lowestOpp.y + RY) / 2,
-                action: "none"
-            };
-        }
-
-        // fallback (no opponents?)
-        const gx = (p.team === 0) ? goal1 : goal2;
-        // Stay a bit in front of the goal line, in YOUR lane
-        return { tx: gx + ((p.team===0)?40:-40), ty: myLaneY, action: "none" };
-    }
-
-
-// -----------------------------------------
-// ROLE B — PLAYMAKER (GRADIENT LOGIC)
-// -----------------------------------------
-if (p.role === "B") {
-
-    // 1. Define Attack Target dynamically
-    const attackGoalX = (p.team === 0) ? goal2 : goal1;
-    const attackingRight = (attackGoalX > RX);
-
-    if (hasPuck) {
+    return {
+        p,
+        myGoalX,
+        enemyGoal,
+        attackingRight,
+        distToNet,
+        laneBlocked,
+        amIClosest,
+        inOffensiveZone,
+        puckInOffensiveZone,
         
-        const distToGoal = Math.hypot(attackGoalX - p.x, RY - p.y);
+        isDelayedOffside: (offsideState.active && offsideState.team === p.team),
 
-        // =========================================================
-        // PRIORITY 1: THE "TAP-IN" SCAN (Teammate on doorstep)
-        // =========================================================
-        // Before being selfish, check if someone has an easy goal.
-        let bestTapIn = null;
-        let closestDist = 999;
+        hasPuck: (puck.ownerId === p.id),
+        justReceived: (puck.ownerId === p.id && p.possessionTime < 30), // < 0.5s hold
 
-        for (const mate of players) {
-            if (mate.team !== p.team || mate.id === p.id) continue;
+        teamHasPuck: (carrier && carrier.team === p.team),
+        oppHasPuck: (carrier && carrier.team !== p.team),
+        loosePuck: (puck.ownerId === null),
+        carrier,
+        distToCarrier: carrier ? Math.hypot(carrier.x - p.x, carrier.y - p.y) : 9999
 
-            // Distance from teammate to ENEMY GOAL
-            const mateDistToGoal = Math.hypot(attackGoalX - mate.x, RY - mate.y);
-
-            // Condition: Teammate is VERY close to net (< 110px) 
-            // AND they are "open" (lane not blocked)
-            if (mateDistToGoal < 110) {
-                if (!isLaneBlocked(p.x, p.y, mate.x, mate.y, p.team)) {
-                    if (mateDistToGoal < closestDist) {
-                        closestDist = mateDistToGoal;
-                        bestTapIn = mate;
-                    }
-                }
-            }
-        }
-
-        // If we found a wide-open teammate at the net, PASS.
-        if (bestTapIn) {
-            return {
-                tx: bestTapIn.x,
-                ty: bestTapIn.y,
-                action: "pass",
-                target: bestTapIn
-            };
-        }
-
-        // =========================================================
-        // PRIORITY 2: THE GRADIENT SHOT (Urgency vs Distance)
-        // =========================================================
-        
-        // Calculate "Urgency" (0.0 to 1.0)
-        // 0px away = 1.0 (Desperate to shoot)
-        // 300px away = 0.0 (Calm)
-        // Formula: 1 - (CurrentDist / MaxDist)
-        let urgency = 1.0 - (distToGoal / 300);
-        if (urgency < 0) urgency = 0;
-
-        // A. HIGH URGENCY (> 60%): SHOOT AT WILL
-        // If we are close (< 120px), we don't care about blockers.
-        // We try to jam it through. We DO NOT look for backward passes.
-        if (urgency > 0.6) {
-             p.angle = Math.atan2(RY - p.y, attackGoalX - p.x);
-             return { tx: attackGoalX, ty: RY, action: "shoot", target: null };
-        }
-
-        // B. MEDIUM URGENCY (> 30%): SMART SHOOTING
-        // If we are mid-range, we shoot ONLY if evaluateShot says it's a "Good" shot.
-        if (urgency > 0.3) {
-            const shot = evaluateShot(p);
-            if (shot.good) {
-                p.angle = Math.atan2(shot.y - p.y, shot.x - p.x);
-                return { tx: shot.x, ty: shot.y, action: "shoot", target: null };
-            }
-        }
-
-        // =========================================================
-        // PRIORITY 3: ATTACKING PASS (Forward Only)
-        // =========================================================
-        // If we aren't shooting, look for Skater C, but ONLY if he is ahead.
-        let skaterC = players.find(m => m.team === p.team && m.role === "C");
-        if (skaterC) {
-            const cIsAhead = (attackingRight) ? (skaterC.x > p.x) : (skaterC.x < p.x);
-            if (cIsAhead && !isLaneBlocked(p.x, p.y, skaterC.x, skaterC.y, p.team)) {
-                return { tx: skaterC.x, ty: skaterC.y, action: "pass", target: skaterC };
-            }
-        }
-
-        // =========================================================
-        // PRIORITY 4: SAFETY / CYCLE (The "Look Back")
-        // =========================================================
-        // We only reach this code if:
-        // 1. No tap-in option.
-        // 2. Too far to force a shot.
-        // 3. No good shot angle.
-        // 4. No forward pass to C.
-        
-        // Now we check pressure. If pressured, we cycle (look back/lateral).
-        let covered = false;
-        for (const o of players) {
-            if (o.team !== p.team && Math.hypot(o.x - p.x, o.y - p.y) < 60) {
-                covered = true;
-                break;
-            }
-        }
-
-        if (covered) {
-            // Deke Lateral
-            const evadeY = (p.y < RY) ? p.y + 80 : p.y - 80;
-            return { tx: p.x, ty: evadeY, action: "none" };
-        }
-
-        // Default: Keep skating toward goal
-        return { tx: attackGoalX, ty: RY, action: "none" };
-    }
-
-    // No puck → existing logic
-    if (loose) return roleC_loosePuck(p); 
-    if (opponentHasPuck) return roleC_supportDefense(p);
-    return roleC_supportOffense(p);
+    };
 }
-// =========================================================
-    // FALLBACK / FAILSAFE (Prevents crash for extra players)
-    // =========================================================
-    // If no role matched, default to basic zone positioning
-    const puckZone = getPuckZone(p.team);
-    if (puckZone === 'own') {
-        return getBlueLinePosition(p.team, puck.y);
+
+// --- CONDITIONS (Prefixed with T0_) ---
+const T0_cHasPuck        = new ConditionNode(bb => bb.hasPuck);
+const T0_cOppHasPuck     = new ConditionNode(bb => bb.oppHasPuck);
+const T0_cLoosePuck      = new ConditionNode(bb => bb.loosePuck);
+const T0_cTeamHasPuck    = new ConditionNode(bb => bb.teamHasPuck);
+const T0_cAmIClosest     = new ConditionNode(bb => bb.amIClosest);
+const T0_cInOffZone      = new ConditionNode(bb => bb.inOffensiveZone);
+const T0_cDelayedOffside = new ConditionNode(bb => bb.isDelayedOffside);
+
+// *** NEW: ONE-TIMER CHECK ***
+const T0_cJustReceived = new ConditionNode(bb => bb.justReceived);
+
+const T0_cCanShoot = new ConditionNode(bb => {
+    if (bb.distToNet > T0.shoot_range) return false;
+    if (bb.distToNet < T0.guaranteed_range) return true;
+    if (bb.laneBlocked) return false;
+    return true;
+});
+
+const T0_cCanCheck = new ConditionNode(bb => {
+    return (bb.oppHasPuck && bb.distToCarrier < T0.check_range);
+});
+
+// --- ACTIONS (Prefixed with T0_) ---
+
+const T0_actRipShot = new ActionNode(bb => {
+    const spread = (Math.random() * 20) - 10;
+    return { tx: bb.enemyGoal, ty: RY + spread, action: "shoot" };
+});
+
+const T0_actChase = new ActionNode(bb => {
+    return { tx: puck.x, ty: puck.y, action: "none" };
+});
+
+const T0_actBodyCheck = new ActionNode(bb => {
+    if (!bb.carrier) return null;
+    const tx = bb.carrier.x + bb.carrier.vx * 15;
+    const ty = bb.carrier.y + bb.carrier.vy * 15;
+    return { tx: tx, ty: ty, action: "none" };
+});
+
+const T0_actDriveLane = new ActionNode(bb => {
+    let laneOffset = 0;
+    if (bb.p.role === "B") laneOffset = -80;
+    if (bb.p.role === "C") laneOffset = 80;
+    // If A is acting as forward, they take center
+    if (bb.p.role === "A") laneOffset = 0;
+
+    const dir = bb.attackingRight ? 1 : -1;
+    // Collision Avoidance
+    for (const mate of players) {
+        if (mate.team === bb.p.team && mate.id !== bb.p.id) {
+            const dx = mate.x - bb.p.x;
+            const dy = mate.y - bb.p.y;
+            if (Math.abs(dy) < 30 && dx * dir > 0 && dx * dir < 60) {
+                laneOffset += (dy > 0 ? -40 : 40); 
+            }
+        }
+    }
+
+    return { tx: bb.enemyGoal, ty: RY + laneOffset, action: "none" };
+});
+
+const T0_actTagUp = new ActionNode(bb => {
+    // Run to the Neutral Zone side of the blue line
+    const dir = bb.attackingRight ? 1 : -1;
+    // Target: Center Ice + slight buffer so they definitely cross the line
+    const safeX = RX + (dir * 80); 
+    
+    return { tx: safeX, ty: RY, action: "none" };
+});
+
+const T0_actSupportHover = new ActionNode(bb => {
+    let laneOffset = 0;
+    if (bb.p.role === "B") laneOffset = -60;
+    if (bb.p.role === "C") laneOffset = 60;
+    const dir = bb.attackingRight ? 1 : -1;
+    return { tx: puck.x - (dir * 100), ty: RY + laneOffset, action: "none" };
+});
+
+const T0_actBackcheck = new ActionNode(bb => {
+    const dir = bb.attackingRight ? 1 : -1;
+    const slotX = bb.myGoalX + (dir * 120);
+    let laneOffset = 0;
+    if (bb.p.role === "B") laneOffset = -50;
+    if (bb.p.role === "C") laneOffset = 50;
+    return { tx: slotX, ty: RY + laneOffset, action: "none" };
+});
+
+const T0_actGapControl = new ActionNode(bb => {
+    if (!bb.carrier) return { tx: bb.myGoalX, ty: RY, action: "none" };
+    const midX = (bb.carrier.x + bb.myGoalX) / 2;
+    const midY = (bb.carrier.y + RY) / 2;
+    return { tx: midX, ty: midY, action: "none" };
+});
+
+const T0_actForwardPass = new ActionNode(bb => {
+    const forwardDir = bb.attackingRight ? 1 : -1;
+    
+    const potentialTargets = players.filter(m => {
+        if (m.team !== bb.p.team || m.id === bb.p.id) return false;
+        if (m.stunTimer > 0) return false;
+        if ((m.x - bb.p.x) * forwardDir <= 40) return false;
+        if (Math.hypot(m.x - bb.p.x, m.y - bb.p.y) > 350) return false;
+        return true;
+    });
+
+    potentialTargets.sort((a, b) => {
+        const distA = Math.hypot(bb.enemyGoal - a.x, RY - a.y);
+        const distB = Math.hypot(bb.enemyGoal - b.x, RY - b.y);
+        return distA - distB; 
+    });
+
+    for (const target of potentialTargets) {
+        if (!isLaneBlocked(bb.p.x, bb.p.y, target.x, target.y, bb.p.team)) {
+            return { tx: target.x, ty: target.y, action: "pass", target: target };
+        }
+    }
+    return null;
+});
+
+const T0_actCrossCreasePass = new ActionNode(bb => {
+    if (!bb.inOffensiveZone) return null;
+
+    const mates = players.filter(m => m.team === bb.p.team && m.id !== bb.p.id);
+    const blueLineX = bb.attackingRight ? (RX + 110) : (RX - 110);
+    
+    for (const m of mates) {
+        if (m.stunTimer > 0) continue;
+        const dist = Math.hypot(m.x - bb.p.x, m.y - bb.p.y);
+        if (dist > 350) continue;
+
+        const mateInZone = bb.attackingRight ? (m.x > blueLineX) : (m.x < blueLineX);
+        if (!mateInZone) continue;
+
+        const lateralDist = Math.abs(bb.p.y - m.y);
+        if (lateralDist < 120) continue; 
+
+        if (!isLaneBlocked(bb.p.x, bb.p.y, m.x, m.y, bb.p.team)) {
+            return { tx: m.x, ty: m.y, action: "pass", target: m };
+        }
+    }
+    
+    return null;
+});
+
+const T0_actBailoutPass = new ActionNode(bb => {
+    const mates = players.filter(m => m.team === bb.p.team && m.id !== bb.p.id);
+    for (const m of mates) {
+        if (m.stunTimer > 0) continue;
+        if (Math.hypot(m.x - bb.p.x, m.y - bb.p.y) > 350) continue;
+
+        if (!isLaneBlocked(bb.p.x, bb.p.y, m.x, m.y, bb.p.team)) {
+            return { tx: m.x, ty: m.y, action: "pass", target: m };
+        }
+    }
+    return null; 
+});
+
+const T0_actDefenderMove = new ActionNode(bb => {
+    const dir = bb.attackingRight ? 1 : -1;
+    let puckZone = "neutral";
+    if (bb.attackingRight) {
+        if (puck.x < RX - 110) puckZone = "def";
+        else if (puck.x > RX + 110) puckZone = "off";
     } else {
-        return { 
-            tx: RX + (p.team === 0 ? 50 : -50), 
-            ty: RY, 
-            action: "none" 
-        };
+        if (puck.x > RX + 110) puckZone = "def";
+        else if (puck.x < RX - 110) puckZone = "off";
     }
 
-}  // <---- end of think(p)
+    let targetX = RX;
+    let targetY = RY;
+
+    if (puckZone === "def") {
+        targetX = bb.myGoalX + (dir * 140);
+        targetY = RY; 
+    } 
+    else if (puckZone === "neutral") {
+        targetX = bb.myGoalX + (dir * 280); 
+        targetY = puck.y;
+    }
+    else {
+        // Only triggered if not carrying puck (handled by tree logic)
+        targetX = RX + (dir * 130); 
+        targetY = puck.y;
+        if (targetY < RY - 120) targetY = RY - 120;
+        if (targetY > RY + 120) targetY = RY + 120;
+    }
+
+    return { tx: targetX, ty: targetY, action: "none" };
+});
+
+
+// --- BEHAVIOR TREES ---
+
+// 1. ATTACK TREE (Used by Forwards OR Defender in O-Zone)
+const T0_TREE_FORWARD = new SelectorNode([
+    
+    // EMERGENCY: If offside, get out!
+    new SequenceNode([ T0_cDelayedOffside, T0_actTagUp ]),
+
+
+    new SequenceNode([
+        T0_cHasPuck,
+        new SelectorNode([
+            
+            // 1. ONE-TIMER: If I just caught it in the O-Zone -> RIP IT.
+            // Ignored lane blocks. Just shoot.
+            new SequenceNode([ T0_cInOffZone, T0_cJustReceived, T0_actRipShot ]),
+
+            // 2. Guaranteed Goal (Jam it)
+            new SequenceNode([ new ConditionNode(bb => bb.distToNet < 140), T0_actRipShot ]),
+
+            // 3. Cross-Crease Pass (Golden Opportunity)
+            T0_actCrossCreasePass,
+
+            // 4. Standard Open Shot
+            new SequenceNode([ T0_cCanShoot, T0_actRipShot ]), 
+            
+            // 5. Transition Pass
+            T0_actForwardPass,
+
+            // 6. Drive
+            T0_actDriveLane 
+        ])
+    ]),
+    new SequenceNode([
+        T0_cLoosePuck,
+        new SelectorNode([
+            new SequenceNode([ T0_cAmIClosest, T0_actChase ]),
+            T0_actSupportHover
+        ])
+    ]),
+    new SequenceNode([ 
+        T0_cOppHasPuck, 
+        new SelectorNode([
+            new SequenceNode([ T0_cCanCheck, T0_actBodyCheck ]),
+            T0_actBackcheck
+        ])
+    ]),
+    new SequenceNode([ T0_cTeamHasPuck, T0_actDriveLane ]),
+    T0_actDriveLane 
+ 
+]);
+
+
+
+
+// 2. DEFENDER TREE (Only used when Puck is in Neutral/Def Zone)
+const T0_TREE_DEFENDER = new SelectorNode([
+
+    // EMERGENCY: If offside, get out!
+    new SequenceNode([ T0_cDelayedOffside, T0_actTagUp ]),
+    
+    new SequenceNode([
+        T0_cHasPuck,
+        new SelectorNode([
+            new SequenceNode([ T0_cCanShoot, T0_actRipShot ]), 
+            T0_actForwardPass,
+            T0_actBailoutPass,
+            T0_actDriveLane 
+        ])
+    ]),
+    new SequenceNode([ 
+        T0_cOppHasPuck, 
+        new SelectorNode([
+            new SequenceNode([ T0_cCanCheck, T0_actBodyCheck ]),
+            T0_actGapControl 
+        ])
+    ]),
+    new SequenceNode([ T0_cLoosePuck, T0_cAmIClosest, T0_actChase ]),
+    T0_actDefenderMove
+]);
+
+
+// --- MAIN THINK FUNCTION ---
+function thinkTeam0(p) {
+    const bb = makeBB_T0(p);
+    
+    // *** TOTAL OFFENSE SWITCH ***
+    // If puck is in Offensive Zone, EVERYONE uses the Forward Tree.
+    // This turns the Defender (A) into a 3rd Attacker.
+    if (bb.puckInOffensiveZone) {
+        return T0_TREE_FORWARD.tick(bb);
+    }
+
+    // Otherwise, play positions
+    if (p.role === "A") {
+        return T0_TREE_DEFENDER.tick(bb);
+    } 
+    else {
+        return T0_TREE_FORWARD.tick(bb);
+    }
+}

@@ -3,6 +3,8 @@
 // Handles directional speed decay and hard caps.
 // ==========================================
 
+
+
 function applyAISkatingPhysics(p) {
     const currentSpeed = Math.hypot(p.vx, p.vy);
 
