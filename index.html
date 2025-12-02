@@ -4277,34 +4277,36 @@ function drawSolidGoals() {
 function drawPlayer(p) {
     ctx.save();
     
-    // 1. MOVE TO PHYSICAL CENTER
-    // We do NOT move the X/Y coordinates. The player stays on their physics path.
+    // 1. Move to Center
     ctx.translate(p.x, p.y);
 
-    // 2. CALCULATE ROTATIONAL TWIST (The "Kayak" Motion)
+    // 2. Calculate Rotation
     let rotationOffset = 0;
+    const speed = Math.hypot(p.vx, p.vy);
 
-    if (p.isAccelerating) {
-        // Increase stride timer based on speed
-        // Speed factor: 0.1 (Base) + Speed * 0.08
-        const speed = Math.hypot(p.vx, p.vy);
+    // Only twist if pushing AND actually moving
+    if (p.isAccelerating && speed > 0.1) {
+        // Increment timer
         p.strideTick += 0.12 + (speed * 0.08); 
 
-        // Calculate Twist
-        // Amplitude: 0.15 radians (approx 8.5 degrees)
-        // This creates a rhythmic twisting motion left and right
-        rotationOffset = Math.sin(p.strideTick) * 0.15;
+        // *** THE FIX: SCALING INTENSITY ***
+        // We calculate a multiplier (0.0 to 1.0) based on speed.
+        // If speed is 0, intensity is 0.
+        // Full twist happens at speed 2.5+.
+        const intensity = Math.min(speed, 2.5) / 2.5;
+
+        // Apply sine wave, scaled by intensity
+        rotationOffset = Math.sin(p.strideTick) * (0.15 * intensity);
     } else {
-        // GLIDING: Reset rotation to dead center (Steady)
+        // Stopped or Coasting -> Reset to straight
         p.strideTick = 0;
         rotationOffset = 0;
     }
 
-    // 3. APPLY ROTATION
-    // Base Angle (Direction) + Twist Offset
+    // 3. Apply Rotation
     ctx.rotate(p.angle + rotationOffset);
 
-    // 4. DRAW SPRITE
+    // 4. Draw Sprite
     const half = p.size / 2;
     const hasPuck = (puck.ownerId === p.id);
     let bodyColor;
@@ -4339,7 +4341,6 @@ function drawPlayer(p) {
 
     ctx.restore();
 }
-
 
 
 
