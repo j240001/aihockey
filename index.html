@@ -805,114 +805,11 @@ const NET_D = 25;
 const topY = RINK_Y + (RY - (NET_H/2) - RINK_Y);
 const botY = topY + NET_H;
 
-// FUNCTION: Create "Thick" Net Walls with high density to prevent push-through
-function addThickNet(gx, gy, isLeft) {
-    // UPDATED OFFSETS: Added '1' to create a dense inner skin.
-    // 0 = Visual Line
-    // 1 = Dense Padding (Stops slow pushes)
-    // 5 = Standard Buffer
-    // 10 = Deep Buffer (Stops fast shots)
-    const offsets = [0, 1, 5, 10]; 
-    
-    const dir = isLeft ? -1 : 1;
 
-    for (const o of offsets) {
-        // Calculate positions expanded by 'o'
-        const backX = gx + (dir * (NET_D + o)); 
-        const ty = topY - o;
-        const by = botY + o;
 
-        // 1. BACK WALL
-        // Left Net: Points Left (Normal -x). Vertical Top->Bottom
-        // Right Net: Points Right (Normal +x). Vertical Bottom->Top
-        let seg = {};
-        if (isLeft) {
-            seg = { x1: backX, y1: ty, x2: backX, y2: by, type: "goal" };
-        } else {
-            seg = { x1: backX, y1: by, x2: backX, y2: ty, type: "goal" };
-        }
-        // Calc Normal
-        let dx = seg.x2 - seg.x1, dy = seg.y2 - seg.y1, len = Math.sqrt(dx*dx + dy*dy);
-        seg.nx = len > 0 ? -dy / len : 0;
-        seg.ny = len > 0 ? dx / len : 0;
-        seg.len = len;
-        rinkSegments.push(seg);
 
-        // 2. TOP SIDE WALL (Points Up)
-        // Left Net: Back -> Front
-        // Right Net: Front -> Back (Wait, must ensure Normal points UP)
-        // Normal (-dy, dx). If vector is (1, 0) -> (0, 1) UP. 
-        // So Left Net (Back->Front) = Right (+x). Normal Up. Correct.
-        // Right Net (Back->Front) = Left (-x). Normal Down? No.
-        
-        // Let's use explicit coords to be safe for both sides:
-        if (isLeft) {
-            // Back(Left) to Front(Right) -> Vector (+, 0) -> Normal (0, +) UP
-            seg = { x1: backX, y1: ty, x2: gx, y2: ty, type: "goal" }; 
-        } else {
-            // Back(Right) to Front(Left) -> Vector (-, 0) -> Normal (0, -) DOWN (Wrong)
-            // We need Right Net Top to point UP. Vector must be (+x).
-            // So Front(Left) to Back(Right).
-            seg = { x1: gx, y1: ty, x2: backX, y2: ty, type: "goal" };
-        }
-        dx = seg.x2 - seg.x1; dy = seg.y2 - seg.y1; len = Math.sqrt(dx*dx + dy*dy);
-        seg.nx = len > 0 ? -dy / len : 0;
-        seg.ny = len > 0 ? dx / len : 0;
-        seg.len = len;
-        rinkSegments.push(seg);
 
-        // 3. BOTTOM SIDE WALL (Points Down)
-        // Normal (-dy, dx). We want Normal (0, 1) ? No, we want (0, 1) is Down in Canvas?
-        // Wait, Canvas Y increases Down. 
-        // So "Up" visual is Negative Y. "Down" visual is Positive Y.
-        // Wall Normal must point towards Center Ice (which is Y=RY, approx 300).
-        // Top Wall is at Y=~280. Center is 300. Normal must be Positive Y (Downwards).
-        // Bot Wall is at Y=~320. Center is 300. Normal must be Negative Y (Upwards).
 
-        // Let's Re-Verify normals for walls facing the "inside" of the rink (not net inside, rink inside):
-        // The walls we are drawing are the OUTSIDE of the net.
-        // We want the puck to bounce OFF them.
-        // Top Wall: Puck is above it (Y < ty). Bounce Up (Negative Y).
-        // Bot Wall: Puck is below it (Y > by). Bounce Down (Positive Y).
-
-        // RE-CALCULATING NORMALS FOR EXTERNAL WALLS:
-        
-        // TOP WALL (Y = ty): Puck hits from Top (Y < ty). Normal must be (0, -1).
-        // Standard Normal calc: (-dy, dx).
-        // To get (0, -1), we need dx < 0. (Right to Left).
-        if (isLeft) {
-             // Back is Left. Front is Right. We need Right->Left.
-             seg = { x1: gx, y1: ty, x2: backX, y2: ty, type: "goal" };
-        } else {
-             // Back is Right. Front is Left. We need Right->Left.
-             seg = { x1: backX, y1: ty, x2: gx, y2: ty, type: "goal" };
-        }
-        dx = seg.x2 - seg.x1; dy = seg.y2 - seg.y1; len = Math.sqrt(dx*dx + dy*dy);
-        seg.nx = len > 0 ? -dy / len : 0;
-        seg.ny = len > 0 ? dx / len : 0;
-        seg.len = len;
-        rinkSegments.push(seg);
-
-        // BOTTOM WALL (Y = by): Puck hits from Bottom (Y > by). Normal must be (0, 1).
-        // To get (0, 1), we need dx > 0. (Left to Right).
-        if (isLeft) {
-             // Back is Left. Front is Right. We need Left->Right.
-             seg = { x1: backX, y1: by, x2: gx, y2: by, type: "goal" };
-        } else {
-             // Back is Right. Front is Left. We need Left->Right.
-             seg = { x1: gx, y1: by, x2: backX, y2: by, type: "goal" };
-        }
-        dx = seg.x2 - seg.x1; dy = seg.y2 - seg.y1; len = Math.sqrt(dx*dx + dy*dy);
-        seg.nx = len > 0 ? -dy / len : 0;
-        seg.ny = len > 0 ? dx / len : 0;
-        seg.len = len;
-        rinkSegments.push(seg);
-    }
-}
-
-// Generate both nets
-addThickNet(goal1, RY, true);
-addThickNet(goal2, RY, false);
 
 
 
@@ -1193,6 +1090,12 @@ function initTeams() {
     // --- Assign Roles Immediately ---
     assignRolesForTeam(0);
     assignRolesForTeam(1);
+
+
+    // *** NEW: BUILD GOAL WALLS ***
+    buildSolidGoals();
+    buildGoalBlocksForPlayers();
+
     
     // --- Initialize Brains for AI ---
     for (const p of players) {
@@ -1573,7 +1476,7 @@ function ejectPuckFromOwner(owner) {
 
 
 
-
+// PUCK UPDATE
 const puck = {
     px: RX,
     py: RY,
@@ -1608,7 +1511,7 @@ const puck = {
         const radius = this.r;
         const moveLen = Math.hypot(this.vx, this.vy);
         if (moveLen > 0) {
-            const maxStep = radius;
+            const maxStep = radius;  // Already small (1.5px), perfect for thin walls
             let steps = Math.ceil(moveLen / maxStep);
             if (steps < 1) steps = 1;
             const stepVX = this.vx / steps;
@@ -1616,10 +1519,20 @@ const puck = {
             for (let i = 0; i < steps; i++) {
                 this.x += stepVX;
                 this.y += stepVY;
-                const hit = collideCircleWithRink(this, radius, 0.8);
-                if (hit) break;
-               
-                // Goalie Interaction
+
+                // Check rink first (as before)
+                let hit = collideCircleWithRink(this, radius, 0.8);
+
+                // NEW: Check goal walls next—resolves pos/vel if hit
+                hit = resolveGoalCollisions(this) || hit;  // Pass 'this' as p
+
+                if (hit) {
+                    // Optional: Break early if you want to stop remaining steps after any hit
+                    // But for more natural bounces (e.g., glancing multiple walls), continue
+                    // If pucks get stuck, add 'break;' here
+                }
+
+                // Goalie Interaction (keep as-is, after collisions)
                 const now = performance.now();
                 for (const g of players) {
                     if (g.type !== "goalie") continue;
@@ -1627,41 +1540,41 @@ const puck = {
                     const d = Math.hypot(this.x - g.x, this.y - g.y);
                     const minD = g.size/2 + this.r;
                     if (d < minD && this.ownerId === null) {
-                         if (g.saveCooldown <= 0) { g.saves++; g.saveCooldown = 60; }
-                         const shotSpeed = Math.hypot(this.vx, this.vy);
-                         const leakChance = Math.max(0, (shotSpeed - 10) * 0.15);
-                         if (Math.random() < leakChance) {
+                        if (g.saveCooldown <= 0) { g.saves++; g.saveCooldown = 60; }
+                        const shotSpeed = Math.hypot(this.vx, this.vy);
+                        const leakChance = Math.max(0, (shotSpeed - 10) * 0.15);
+                        if (Math.random() < leakChance) {
                             this.ignoreGoalieUntil = now + 200;
                             this.vx *= 0.8; this.vy *= 0.8;
                             continue;
-                         }
-                        
-                         let catchChance = Math.max(0, 0.6 - (shotSpeed * 0.2));
-                         if (Math.random() < catchChance) {
+                        }
+
+                        let catchChance = Math.max(0, 0.6 - (shotSpeed * 0.2));
+                        if (Math.random() < catchChance) {
                             this.ownerId = g.id; this.vx = 0; this.vy = 0;
                             goalieFreezeTimer = performance.now(); goalieLocked = false;
                             return;
-                         }
-                         this.ignoreGoalieUntil = now + 250;
-                         const nx = (this.x - g.x) / d; const ny = (this.y - g.y) / d;
-                         this.x = g.x + nx * minD; this.y = g.y + ny * minD;
-                         const dot = this.vx * nx + this.vy * ny;
-                         this.vx -= 2 * dot * nx; this.vy -= 2 * dot * ny;
-                         // Old: 0.2 + Math.random() * 0.6 (20% to 80% rebound)
-                         // New: 0.1 + Math.random() * 0.25 (10% to 35% rebound) -> Much softer
-                         const padDampening = 0.1 + Math.random() * 0.25;
-                         this.vx *= padDampening; this.vy *= padDampening;
-                        
-                         const spread = (Math.random() - 0.5) * 1.5;
-                         const cos = Math.cos(spread); const sin = Math.sin(spread);
-                         const newVX = this.vx * cos - this.vy * sin;
-                         const newVY = this.vx * sin + this.vy * cos;
-                         this.vx = newVX; this.vy = newVY;
+                        }
+                        this.ignoreGoalieUntil = now + 250;
+                        const nx = (this.x - g.x) / d; const ny = (this.y - g.y) / d;
+                        this.x = g.x + nx * minD; this.y = g.y + ny * minD;
+                        const dot = this.vx * nx + this.vy * ny;
+                        this.vx -= 2 * dot * nx; this.vy -= 2 * dot * ny;
+                        // Old: 0.2 + Math.random() * 0.6 (20% to 80% rebound)
+                        // New: 0.1 + Math.random() * 0.25 (10% to 35% rebound) -> Much softer
+                        const padDampening = 0.1 + Math.random() * 0.25;
+                        this.vx *= padDampening; this.vy *= padDampening;
+
+                        const spread = (Math.random() - 0.5) * 1.5;
+                        const cos = Math.cos(spread); const sin = Math.sin(spread);
+                        const newVX = this.vx * cos - this.vy * sin;
+                        const newVY = this.vx * sin + this.vy * cos;
+                        this.vx = newVX; this.vy = newVY;
                     }
                 }
             }
         }
-        // Scrum Breaker
+        // Scrum Breaker (keep after full move, as it doesn't affect position)
         let closeTeam0 = 0; let closeTeam1 = 0;
         for (const pl of players) {
             const d = Math.hypot(pl.x - this.x, pl.y - this.y);
@@ -2539,34 +2452,41 @@ function solveBehindNet(p) {
 function decideWithPuck(p) {
 
     const goalX = (p.team === 0) ? goal2 : goal1;
-
-    // Correct vertical center of goal opening
     const goalY = (topY + botY) / 2;
 
-
-    // === NEW COOLDOWN CHECK ===
-    // If recovering from a shot, just carry the puck (or pass). 
-    // Do not attempt to shoot again immediately.
+    // === COOLDOWN CHECK ===
     if (p.shootCooldown > 0) {
-        // Force a carry logic (simple lane picking)
         const lane = pickCarryLane(p);
         return { tx: lane.x, ty: lane.y, action: "none", target: null };
     }
-    // ===========================
-
-
 
     // =====================================================
     // 1. Evaluate shot
     // =====================================================
     const shoot = evaluateShot(p);
 
-    // BREAKAWAY OVERRIDE = ALWAYS SHOOT
+    // === BREAKAWAY OVERRIDE ===
     if (shootReason === "BREAKAWAY → GOOD") {
 
-        // *** Force shooter to face the actual target ***
+        // Face target
         p.angle = Math.atan2(shoot.y - p.y, shoot.x - p.x);
 
+        // --- Prevent illegal back-net shots ---
+        const redirect = redirectShotBehindNet(p);
+        if (redirect) {
+
+            // Force shot angle toward redirected direction
+            p.angle = Math.atan2(redirect.y - p.y, redirect.x - p.x);
+
+            return {
+                tx: redirect.x,
+                ty: redirect.y,
+                action: "shoot",
+                target: null
+            };
+        }
+
+        // Normal breakaway shot
         return {
             tx: shoot.x,
             ty: shoot.y,
@@ -2575,12 +2495,28 @@ function decideWithPuck(p) {
         };
     }
 
-    // NORMAL SHOOT CHECK
+    // === NORMAL SHOOT CHECK ===
     if (shoot.good && !isLaneBlocked(p.x, p.y, shoot.x, shoot.y, p.team)) {
 
-        // *** Force shooter to face target BEFORE shooting ***
+        // Face goal before shooting
         p.angle = Math.atan2(shoot.y - p.y, shoot.x - p.x);
 
+        // --- Prevent illegal back-net shots ---
+        const redirect = redirectShotBehindNet(p);
+        if (redirect) {
+
+            // Force shot angle toward redirected direction
+            p.angle = Math.atan2(redirect.y - p.y, redirect.x - p.x);
+            
+            return {
+                tx: redirect.x,
+                ty: redirect.y,
+                action: "shoot",
+                target: null
+            };
+        }
+
+        // Normal shot
         return {
             tx: shoot.x,
             ty: shoot.y,
@@ -2595,8 +2531,8 @@ function decideWithPuck(p) {
     const pass = evaluatePassOptions(p);
 
     if (pass.good) {
-        const pressured = isPressured(p);
 
+        const pressured = isPressured(p);
         const clearLane = !isLaneBlocked(
             p.x, p.y,
             pass.teammate.x, pass.teammate.y,
@@ -3462,6 +3398,10 @@ function updatePlayer(p) {
 }
 
 
+
+
+
+
 function checkGoalieFreeze() {
     if (puck.ownerId === null) return false;
 
@@ -4185,6 +4125,10 @@ function renderFrame() {
     
     drawGoalLights();
     
+    // debugDrawGoalBlocks(ctx);
+
+    // drawSolidGoals();
+    
     puck.draw();
 
     for (const p of players) {
@@ -4227,7 +4171,17 @@ function renderFrame() {
 }
 
 
-
+function drawSolidGoals() {
+    ctx.fillStyle = "#888"; // Grey posts
+    for (const wall of GOAL_WALLS) {
+        ctx.fillRect(wall.x, wall.y, wall.w, wall.h);
+        
+        // Optional: Draw outline
+        ctx.strokeStyle = "#555";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(wall.x, wall.y, wall.w, wall.h);
+    }
+}
 
 
 
@@ -4488,6 +4442,10 @@ if (isPaused) {
         puck.update();
         checkOffsides();
         checkDeadPuck(); 
+
+        // *** NEW: SOLID GOAL COLLISION ***
+        resolveGoalCollisions(puck);
+
         checkGoalieHarassment();
         checkNetPinning(); 
 
@@ -4497,8 +4455,11 @@ if (isPaused) {
         
         for (const p of players) {
             updatePlayer(p);
+            // *** NEW: PLAYERS HIT GOAL TOO ***
+            resolveGoalCollisions(p);
+            blockPlayerFromGoal(p);  
             enforcePlayerWalls(p);
-            keepSkatersOutOfNet(p);
+            // keepSkatersOutOfNet(p);
         }
 
         resolvePlayerCollisions();
@@ -4558,6 +4519,9 @@ if (isResetActive()) {
         checkGoalieHarassment();
         checkNetPinning(); 
 
+        // *** NEW: SOLID GOAL COLLISION ***
+        resolveGoalCollisions(puck);
+
         if (puckEscapedRink()) handlePuckEscape();
 
         trainingTick(performance.now());
@@ -4573,7 +4537,7 @@ if (isResetActive()) {
         for (const p of players) {
             updatePlayer(p);
             enforcePlayerWalls(p);
-            keepSkatersOutOfNet(p);
+            // keepSkatersOutOfNet(p);
         }
 
         resolvePlayerCollisions();
