@@ -463,9 +463,75 @@ function applyEvasion(p, targetX, targetY) {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// =========================================================
+// PREVENTIVE OFFSIDE CHECK FOR AI (Universal)
+// =========================================================
+function wouldBeOffside(p) {
+    // Blue lines
+    const leftLine  = RX - BLUE_LINE_OFFSET;
+    const rightLine = RX + BLUE_LINE_OFFSET;
+
+    const puckX = puck.x;
+    const meX   = p.x;
+
+    // TEAM 0 → direction depends on team0AttacksRight
+    if (p.team === 0) {
+        if (team0AttacksRight) {
+            // Attacking RIGHT: puck must cross rightLine before skater
+            const puckIn = puckX > rightLine;
+            const meIn   = meX > rightLine;
+            if (!puckIn && meIn) return true;   // entering early
+        } else {
+            // Attacking LEFT
+            const puckIn = puckX < leftLine;
+            const meIn   = meX < leftLine;
+            if (!puckIn && meIn) return true;
+        }
+    }
+
+    // TEAM 1 → opposite direction
+    else {
+        const team1AttacksRight = !team0AttacksRight;
+
+        if (team1AttacksRight) {
+            // Team 1 attacking RIGHT
+            const puckIn = puckX > rightLine;
+            const meIn   = meX > rightLine;
+            if (!puckIn && meIn) return true;
+        } else {
+            // Team 1 attacking LEFT
+            const puckIn = puckX < leftLine;
+            const meIn   = meX < leftLine;
+            if (!puckIn && meIn) return true;
+        }
+    }
+
+    return false;
+}
+
+
+
+
 // ==========================================
 // OFFSIDE LOGIC
 // ==========================================
+
+
+
 
 function checkOffsides() {
     // 1. If play is stopped, reset logic
@@ -880,4 +946,67 @@ function redirectShotBehindNet(p) {
     }
 
     return null;
+}
+
+
+
+
+// =========================================================
+// BEHIND-NET ESCAPE MODE (Behavior, NOT Pathfinding)
+// =========================================================
+function behindNetEscape(p, tx, ty) {
+
+    // 1. Determine if *puck* is behind either net
+    const puckBehindLeft  = (puck.x < goal1 - 20);
+    const puckBehindRight = (puck.x > goal2 + 20);
+    const puckBehindNet   = puckBehindLeft || puckBehindRight;
+
+    // If puck is behind the net, behave normally
+    if (puckBehindNet) {
+        return { x: tx, y: ty };
+    }
+
+    // 2. Determine if *player* is behind the net
+    const trapY = 80;
+    const playerBehindLeft  = (p.x < goal1 - 20)  && (Math.abs(p.y - RY) < trapY);
+    const playerBehindRight = (p.x > goal2 + 20)  && (Math.abs(p.y - RY) < trapY);
+
+    const inTrap = playerBehindLeft || playerBehindRight;
+
+    if (!inTrap) {
+        // Not stuck behind net → normal
+        return { x: tx, y: ty };
+    }
+
+    // 3. Player is behind net AND puck is not behind net → escape mode
+    // Escape direction is chosen simply:
+    const escapeUp = (p.y < RY);
+    const escapeSpeed = escapeUp ? -100 : 100;
+
+    // Maintain original X-target,
+    // but force a strong vertical bias until escaping trapY region.
+    const newTy = p.y + escapeSpeed;
+
+    return { x: tx, y: newTy };
+}
+
+
+
+
+function offensiveZoneAllowed(p) {
+    const blueLeft  = RX - BLUE_LINE_OFFSET;
+    const blueRight = RX + BLUE_LINE_OFFSET;
+
+    let attackingRight;
+
+    if (p.team === 0) attackingRight = team0AttacksRight;
+    else             attackingRight = !team0AttacksRight;
+
+    const puckX = puck.x;
+
+    if (attackingRight) {
+        return (puckX > blueRight);   // puck already in O-zone?
+    } else {
+        return (puckX < blueLeft);
+    }
 }
