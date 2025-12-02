@@ -450,14 +450,14 @@ function handleOptionsInput(e) {
 // =========================================================
 // GAME CLOCK AND SCORE GLOBALS
 // =========================================================
-const GAME_DURATION_SECONDS = 120; // seconds
+const GAME_DURATION_SECONDS = 180; // seconds
 let timeRemaining = GAME_DURATION_SECONDS;
 let lastGameTimeUpdate = performance.now();
 
 // MULTI-PERIOD SYSTEM
 let currentPeriod = 1;
 const TOTAL_PERIODS = 3;
-const PERIOD_LENGTH_SECONDS = 120; // same as GAME_DURATION_SECONDS
+const PERIOD_LENGTH_SECONDS = 180; // same as GAME_DURATION_SECONDS
 
 let periodMessage = ""; 
 let periodMessageUntil = 0;
