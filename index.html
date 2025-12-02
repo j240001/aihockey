@@ -4277,38 +4277,34 @@ function drawSolidGoals() {
 function drawPlayer(p) {
     ctx.save();
     
-    // === 1. CALCULATE VISUAL SWAY ===
-    let swayAmount = 0;
+    // 1. MOVE TO PHYSICAL CENTER
+    // We do NOT move the X/Y coordinates. The player stays on their physics path.
+    ctx.translate(p.x, p.y);
 
-    // Only oscillate if we are actively pushing (accelerating)
+    // 2. CALCULATE ROTATIONAL TWIST (The "Kayak" Motion)
+    let rotationOffset = 0;
+
     if (p.isAccelerating) {
-        // Increase stride timer based on speed (faster speed = faster legs)
+        // Increase stride timer based on speed
+        // Speed factor: 0.1 (Base) + Speed * 0.08
         const speed = Math.hypot(p.vx, p.vy);
-        p.strideTick += 0.15 + (speed * 0.1); 
+        p.strideTick += 0.12 + (speed * 0.08); 
 
-        // Calculate lateral offset (Left -> Right -> Left)
-        // Amplitude: 3 pixels max
-        swayAmount = Math.sin(p.strideTick) * 3;
+        // Calculate Twist
+        // Amplitude: 0.15 radians (approx 8.5 degrees)
+        // This creates a rhythmic twisting motion left and right
+        rotationOffset = Math.sin(p.strideTick) * 0.15;
     } else {
-        // GLIDING: Reset legs to neutral (Steady)
-        p.strideTick = 0; 
-        swayAmount = 0;
+        // GLIDING: Reset rotation to dead center (Steady)
+        p.strideTick = 0;
+        rotationOffset = 0;
     }
 
-    // === 2. APPLY PERPENDICULAR OFFSET ===
-    // Shift the drawing context Left/Right relative to facing angle
-    // Angle + 90 degrees (PI/2) gives us the "Left" vector
-    const sideAngle = p.angle + Math.PI / 2;
-    
-    // Calculate visual coordinates (Physics coordinates p.x/p.y remain untouched)
-    const visualX = p.x + Math.cos(sideAngle) * swayAmount;
-    const visualY = p.y + Math.sin(sideAngle) * swayAmount;
+    // 3. APPLY ROTATION
+    // Base Angle (Direction) + Twist Offset
+    ctx.rotate(p.angle + rotationOffset);
 
-    // Move canvas to Visual Location
-    ctx.translate(visualX, visualY);
-    ctx.rotate(p.angle);
-
-    // === 3. DRAW SPRITE (Standard Logic) ===
+    // 4. DRAW SPRITE
     const half = p.size / 2;
     const hasPuck = (puck.ownerId === p.id);
     let bodyColor;
@@ -4343,6 +4339,12 @@ function drawPlayer(p) {
 
     ctx.restore();
 }
+
+
+
+
+
+
 
 
 // =========================================================
