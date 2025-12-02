@@ -450,14 +450,14 @@ function handleOptionsInput(e) {
 // =========================================================
 // GAME CLOCK AND SCORE GLOBALS
 // =========================================================
-const GAME_DURATION_SECONDS = 180; // seconds
+const GAME_DURATION_SECONDS = 120; // seconds
 let timeRemaining = GAME_DURATION_SECONDS;
 let lastGameTimeUpdate = performance.now();
 
 // MULTI-PERIOD SYSTEM
 let currentPeriod = 1;
 const TOTAL_PERIODS = 3;
-const PERIOD_LENGTH_SECONDS = 180; // same as GAME_DURATION_SECONDS
+const PERIOD_LENGTH_SECONDS = 120; // same as GAME_DURATION_SECONDS
 
 let periodMessage = ""; 
 let periodMessageUntil = 0;
@@ -997,6 +997,8 @@ function makePlayer({id, team, type, isHuman, x, y, angle}) {
         saveCooldown: 0,
         passCooldown: 0,
         stunTimer: 0,
+        strideTick: 0,
+        isAccelerating: false,
 
         brain: {
             inputSize: 0,
@@ -2271,6 +2273,9 @@ function updateHumanSkater(p) {
         const fwd = 0.08;
         p.vx += Math.cos(p.angle) * fwd;
         p.vy += Math.sin(p.angle) * fwd;
+        p.isAccelerating = true; // <--- PUSHING
+    } else {
+        p.isAccelerating = false; // <--- GLIDING
     }
 
     if (keys.ArrowDown) {
@@ -3119,8 +3124,11 @@ function updateAISkater(p) {
 
     // Apply force along the MOVEMENT angle (not necessarily facing angle)
     if (drive > 0) {
-        p.vx += Math.cos(moveAngle) * drive;
-        p.vy += Math.sin(moveAngle) * drive;
+        p.vx += Math.cos(p.angle) * drive;
+        p.vy += Math.sin(p.angle) * drive;
+        p.isAccelerating = true;  // <--- THEY ARE PUSHING
+    } else {
+        p.isAccelerating = false; // <--- THEY ARE GLIDING/BRAKING
     }
 
     // Apply Nuanced Physics (Speed caps & Drag)
@@ -4267,71 +4275,74 @@ function drawSolidGoals() {
 // DRAW
 // =========================================================
 function drawPlayer(p) {
-    
-    
-
-    
     ctx.save();
-    ctx.translate(p.x, p.y);
+    
+    // === 1. CALCULATE VISUAL SWAY ===
+    let swayAmount = 0;
+
+    // Only oscillate if we are actively pushing (accelerating)
+    if (p.isAccelerating) {
+        // Increase stride timer based on speed (faster speed = faster legs)
+        const speed = Math.hypot(p.vx, p.vy);
+        p.strideTick += 0.15 + (speed * 0.1); 
+
+        // Calculate lateral offset (Left -> Right -> Left)
+        // Amplitude: 3 pixels max
+        swayAmount = Math.sin(p.strideTick) * 3;
+    } else {
+        // GLIDING: Reset legs to neutral (Steady)
+        p.strideTick = 0; 
+        swayAmount = 0;
+    }
+
+    // === 2. APPLY PERPENDICULAR OFFSET ===
+    // Shift the drawing context Left/Right relative to facing angle
+    // Angle + 90 degrees (PI/2) gives us the "Left" vector
+    const sideAngle = p.angle + Math.PI / 2;
+    
+    // Calculate visual coordinates (Physics coordinates p.x/p.y remain untouched)
+    const visualX = p.x + Math.cos(sideAngle) * swayAmount;
+    const visualY = p.y + Math.sin(sideAngle) * swayAmount;
+
+    // Move canvas to Visual Location
+    ctx.translate(visualX, visualY);
     ctx.rotate(p.angle);
 
+    // === 3. DRAW SPRITE (Standard Logic) ===
     const half = p.size / 2;
-
-    let bodyColor;
     const hasPuck = (puck.ownerId === p.id);
+    let bodyColor;
 
-    // ---------------------------------------------------------
-    // DEBUG ROLE COLORS (Team 0 only)
-    // ---------------------------------------------------------
     if (DEBUG_ROLES && p.team === 0) {
-        // Role-specific debug jersey colors
-        if (p.role === "A") bodyColor = "#6529ff";   // PURPLE   = closest to own goalie
-        else if (p.role === "B") bodyColor = "#44ff44"; // GREEN = middle
-        else if (p.role === "C") bodyColor = "#4488ff"; // BLUE  = farthest from own goalie
-        else bodyColor = "#bbbbbb";                   // fallback if no role assigned
+        if (p.role === "A") bodyColor = "#6529ff";
+        else if (p.role === "B") bodyColor = "#44ff44";
+        else if (p.role === "C") bodyColor = "#4488ff";
+        else bodyColor = "#bbbbbb";
+    } else {
+        if (p.team === 0) bodyColor = hasPuck ? TEAM0_COLOR_HAS_PUCK : TEAM0_COLOR;
+        else bodyColor = hasPuck ? TEAM1_COLOR_HAS_PUCK : TEAM1_COLOR;
     }
 
-    // ---------------------------------------------------------
-    // NORMAL GAME COLORS (when debug off OR team 1)
-    // ---------------------------------------------------------
-    if (!DEBUG_ROLES || p.team !== 0) {
-        // TEAM 0
-        if (p.team === 0) {
-            bodyColor = hasPuck ? TEAM0_COLOR_HAS_PUCK : TEAM0_COLOR;
-
-        // TEAM 1
-        } else {
-            bodyColor = hasPuck ? TEAM1_COLOR_HAS_PUCK : TEAM1_COLOR;
-        }
-    }
-
-    // apply jersey color
+    // Body
     ctx.fillStyle = bodyColor;
     ctx.fillRect(-half, -half, p.size, p.size);
 
-    // head (unchanged)
+    // Head
     const head = p.size * 0.4;
     ctx.fillStyle = "#111";
     ctx.fillRect(half - head/2, -head/2, head, head);
     
-    // -------------------------------------------------------
-    // HUMAN NOSE DOT
-    // -------------------------------------------------------
+    // Nose (Human indicator)
     if (p.isHuman) {
         ctx.fillStyle = "#ffffff";
-
-        // position slightly ahead of the head
-        const noseOffset = half + head * 0.1;  // small push forward
-        const dotSize = 0.8;                   // dot radius
-
+        const noseOffset = half + head * 0.1;
         ctx.beginPath();
-        ctx.arc(noseOffset, 0, dotSize, 0, Math.PI * 2);
+        ctx.arc(noseOffset, 0, 0.8, 0, Math.PI * 2);
         ctx.fill();
     }
 
     ctx.restore();
 }
-
 
 
 // =========================================================
