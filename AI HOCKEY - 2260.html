@@ -1521,7 +1521,7 @@ const puck = {
                 this.y += stepVY;
 
                 // Check rink first (as before)
-                let hit = collideCircleWithRink(this, radius, 0.8);
+                let hit = collideCircleWithRink(this, radius, 0.98);
 
                 // NEW: Check goal walls next—resolves pos/vel if hit
                 hit = resolveGoalCollisions(this) || hit;  // Pass 'this' as p
@@ -1530,6 +1530,7 @@ const puck = {
                     // Optional: Break early if you want to stop remaining steps after any hit
                     // But for more natural bounces (e.g., glancing multiple walls), continue
                     // If pucks get stuck, add 'break;' here
+                    break;
                 }
 
                 // Goalie Interaction (keep as-is, after collisions)
@@ -1767,19 +1768,96 @@ function tryPickupPuck(p) {
 
 
 
+// ---------------------------------------------------------
+// BEHIND-NET SHOT SAFETY
+// If shooter is behind a net and facing center ice,
+// force the shot to be vertical only (Y axis).
+// ---------------------------------------------------------
+function fixBehindNetShotDir(p) {
+    // Only care if we're between the posts vertically
+    if (p.y < topY || p.y > botY) return null;
+
+    const cosA = Math.cos(p.angle);
+    const sinA = Math.sin(p.angle);
+
+    // ---------------------------------
+    // LEFT NET  (opening to the RIGHT)
+    // ---------------------------------
+    // Behind net = x < goal1
+    // "Facing center" = looking right (cosA > 0)
+    if (p.x < goal1 && cosA > 0.4) {
+
+        // Use existing vertical tendency so it feels natural.
+        // If shot is almost horizontal, default UP.
+        let dirY = Math.sign(sinA);
+        if (dirY === 0) dirY = -1;
+
+        return { vxDir: 0, vyDir: dirY };
+    }
+
+    // ---------------------------------
+    // RIGHT NET (opening to the LEFT)
+    // ---------------------------------
+    // Behind net = x > goal2
+    // "Facing center" = looking left (cosA < 0)
+    if (p.x > goal2 && cosA < -0.4) {
+
+        let dirY = Math.sign(sinA);
+        // If almost perfectly horizontal, default DOWN
+        if (dirY === 0) dirY = 1;
+
+        return { vxDir: 0, vyDir: dirY };
+    }
+
+    return null;
+}
+
+
+
+
+
+
 function shootPuck(player, power) {
+    // must actually own the puck
     if (puck.ownerId !== player.id) return;
 
-    player.shootCooldown = 60; 
-    puck.lastOwnerId = player.id;
-    
-    // *** NEW: Teleport to stick tip before launching ***
-    ejectPuckFromOwner(player); // This sets ownerId = null
+    const basePower = (power !== undefined) ? power : (6 + Math.random() * 5);
 
-    const shotPower = power ?? (6 + Math.random() * 5);
-    puck.vx = Math.cos(player.angle) * shotPower;
-    puck.vy = Math.sin(player.angle) * shotPower;
+    // =========================================
+    // 1) SPECIAL CASE: BEHIND-NET SHOT REDIRECT
+    // =========================================
+    const behind = fixBehindNetShotDir(player);
+    if (behind) {
+        player.shootCooldown = 35;      // keep your existing cooldown here
+        puck.lastOwnerId = player.id;
+
+        // eject puck from stick like normal
+        ejectPuckFromOwner(player);
+
+        // vertical-only shot, using the SAME Y bias as the player's angle
+        const speed = basePower;
+        puck.vx = behind.vxDir * speed; // 0
+        puck.vy = behind.vyDir * speed;
+
+        return;
+    }
+
+    // =========================================
+    // 2) NORMAL SHOT (unchanged behaviour)
+    // =========================================
+    player.shootCooldown = 35;
+    puck.lastOwnerId = player.id;
+
+    ejectPuckFromOwner(player);
+
+    // keep your existing spread logic if you had one
+    const angle = player.angle;  // or player.angle + random spread if you want
+    const speed = basePower;
+
+    puck.vx = Math.cos(angle) * speed;
+    puck.vy = Math.sin(angle) * speed;
 }
+
 
 
 

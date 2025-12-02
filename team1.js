@@ -24,6 +24,8 @@ function makeBB(p) {
     const puckInDefZone = defendingRight ? (puck.x > defBlueLine) : (puck.x < defBlueLine);
     const carrier = getPlayerById(puck.ownerId);
 
+
+
     // Find the OTHER forward (P looking for S, S looking for P)
     // If I am P, mate is S. If I am S, mate is P.
     const forwardRoleToFind = (p.role === "P") ? "S" : "P";
@@ -64,10 +66,12 @@ function makeBB(p) {
         distToGoal: Math.hypot(enemyGoal - p.x, RY - p.y),
         inShotRange: (Math.hypot(enemyGoal - p.x, RY - p.y) < T1.shot_range),
         inDefShotRange: (Math.hypot(enemyGoal - p.x, RY - p.y) < T1.def_shot_range),
+        isDelayedOffside: (offsideState.active && offsideState.team === p.team),
         puckInDefZone,
         isDeepInZone,
         distToCarrier,
         amIClosest
+        
     };
 }
 
@@ -92,6 +96,7 @@ const DZone              = new ConditionNode(bb => (bb.myGoalX > RX) ? bb.p.x > 
 const OZone              = new ConditionNode(bb => (bb.enemyGoal > RX) ? bb.p.x > (RX + T1.blue_line_offset) : bb.p.x < (RX - T1.blue_line_offset));
 const condPuckDeep       = new ConditionNode(bb => bb.isDeepInZone);
 const condInHittingRange = new ConditionNode(bb => bb.distToCarrier < 60);
+const condDelayedOffside = new ConditionNode(bb => bb.isDelayedOffside);
 
 
 
@@ -213,11 +218,22 @@ const actSmartForwardPass = new ActionNode(bb => {
     return null; // Keep puck
 });
 
+// tag up if delayed offside
+const actTagUp_T1 = new ActionNode(bb => {
+    const dir = (bb.enemyGoal > RX) ? 1 : -1;
+    const safeX = RX - dir * 80; // get OUT of offensive zone
+    return { tx: safeX, ty: RY, action: "none" };
+});
 
-// --- TREES ---
+
+
+
+// === TREES ================================================================
+
 
 // TREE 1: ATTACKER (Role P)
 const TREE_ATTACKER = new SelectorNode([
+    new SequenceNode([ condDelayedOffside, actTagUp_T1 ]),
     new SequenceNode([
         condHasPuck,
         new SelectorNode([
@@ -230,8 +246,10 @@ const TREE_ATTACKER = new SelectorNode([
     actChasePuck 
 ]);
 
+
 // TREE 2: WINGER (Role S)
 const TREE_WINGER = new SelectorNode([
+    new SequenceNode([ condDelayedOffside, actTagUp_T1 ]),
     new SequenceNode([
         condHasPuck,
         new SelectorNode([
@@ -246,6 +264,7 @@ const TREE_WINGER = new SelectorNode([
 
 // TREE 3: DEFENDER (Role D)
 const TREE_DEFENDER = new SelectorNode([
+    new SequenceNode([ condDelayedOffside, actTagUp_T1 ]),
     new SequenceNode([
         condHasPuck,
         new SelectorNode([

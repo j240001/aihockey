@@ -697,18 +697,22 @@ function buildSolidGoals() {
 function resolveGoalCollisions(p) {
     let hit = false;
     const r = p.r || p.size / 2;
+
     for (const wall of GOAL_WALLS) {
         const closestX = clamp(p.x, wall.x, wall.x + wall.w);
         const closestY = clamp(p.y, wall.y, wall.y + wall.h);
         const dx = p.x - closestX;
         const dy = p.y - closestY;
         const distSq = dx * dx + dy * dy;
+
         if (distSq < r * r) {
-            const dist = Math.sqrt(distSq) || 0.001;  // Avoid div0
-            // Normal direction (from wall to puck, normalized)
+            const dist = Math.sqrt(distSq) || 0.001;
+            
+            // Normal direction
             let nx = dx / dist;
             let ny = dy / dist;
-            // If dist==0 (fully inside), fallback to axis choice like before
+
+            // Fallback for tunneling (rare)
             if (dist < 0.001) {
                 const distLeft = Math.abs(p.x - wall.x);
                 const distRight = Math.abs(p.x - (wall.x + wall.w));
@@ -717,24 +721,37 @@ function resolveGoalCollisions(p) {
                 const minX = Math.min(distLeft, distRight);
                 const minY = Math.min(distTop, distBot);
                 if (minX < minY) {
-                    nx = (distLeft < distRight) ? -1 : 1;
-                    ny = 0;
+                    nx = (distLeft < distRight) ? -1 : 1; ny = 0;
                 } else {
-                    nx = 0;
-                    ny = (distTop < distBot) ? -1 : 1;
+                    nx = 0; ny = (distTop < distBot) ? -1 : 1;
                 }
             }
-            // Push out along normal
+
+            // Push out
             const overlap = r - dist;
             p.x += nx * overlap;
             p.y += ny * overlap;
-            // Reflect velocity (with damping, adjust 0.5 to taste for bounciness)
+
+            // --- NEW SOFT NET PHYSICS ---
+            
+            // 0.1 = Dead bounce (Back of net)
+            // 0.3 = Dull thud (Side of net)
+            // (Standard wall was effectively 1.0)
+            const restitution = (wall.type === "back") ? 0.1 : 0.3;
+
+            // Apply reflection: V_new = V_old - (1 + e) * (V . N) * N
             const dot = p.vx * nx + p.vy * ny;
-            p.vx -= 2 * dot * nx;
-            p.vy -= 2 * dot * ny;
-            // Dampen overall (optional, simulates energy loss)
-            p.vx *= 0.8;
-            p.vy *= 0.8;
+            
+            // Only reflect if moving TOWARD the wall
+            if (dot < 0) {
+                p.vx -= (1 + restitution) * dot * nx;
+                p.vy -= (1 + restitution) * dot * ny;
+            }
+
+            // High Friction (Mesh catches the puck)
+            p.vx *= 0.6;
+            p.vy *= 0.6;
+
             hit = true;
         }
     }
