@@ -610,3 +610,257 @@ function checkOffsides() {
     // Update Previous X
     p.prevX = p.x;
 }
+
+
+
+// ==========================================
+// SOLID GOAL PHYSICS (The "Brick Wall" Fix)
+// ==========================================
+
+const GOAL_WALLS = [];
+
+function buildSolidGoals() {
+    GOAL_WALLS.length = 0; // Clear existing
+
+    const depth = 23;    // How deep the net is
+    const thickness = 2; // How thick the walls are (Prevent tunneling)
+    const openingHalf = 23; // Half the net height (Net is 70px tall)
+    
+    // Y Coordinates for posts
+    const topPost = RY - openingHalf;
+    const botPost = RY + openingHalf;
+
+    // --- LEFT GOAL (Goal 1) ---
+    // Opening is at x = goal1. Back is to the left.
+    
+    // 1. Back Wall (Vertical block)
+    GOAL_WALLS.push({
+        x: goal1 - depth - thickness, 
+        y: topPost - thickness,
+        w: thickness, 
+        h: (botPost - topPost) + (thickness * 2),
+        type: "back"
+    });
+
+    // 2. Top Side (Horizontal block)
+    GOAL_WALLS.push({
+        x: goal1 - depth,
+        y: topPost - thickness,
+        w: depth, // Reaches to the goal line
+        h: thickness,
+        type: "side"
+    });
+
+    // 3. Bottom Side (Horizontal block)
+    GOAL_WALLS.push({
+        x: goal1 - depth,
+        y: botPost,
+        w: depth,
+        h: thickness,
+        type: "side"
+    });
+
+    // --- RIGHT GOAL (Goal 2) ---
+    // Opening is at x = goal2. Back is to the right.
+
+    // 1. Back Wall
+    GOAL_WALLS.push({
+        x: goal2 + depth,
+        y: topPost - thickness,
+        w: thickness,
+        h: (botPost - topPost) + (thickness * 2),
+        type: "back"
+    });
+
+    // 2. Top Side
+    GOAL_WALLS.push({
+        x: goal2, // Starts at goal line
+        y: topPost - thickness,
+        w: depth,
+        h: thickness,
+        type: "side"
+    });
+
+    // 3. Bottom Side
+    GOAL_WALLS.push({
+        x: goal2,
+        y: botPost,
+        w: depth,
+        h: thickness,
+        type: "side"
+    });
+}
+
+
+
+
+function resolveGoalCollisions(p) {
+    let hit = false;
+    const r = p.r || p.size / 2;
+    for (const wall of GOAL_WALLS) {
+        const closestX = clamp(p.x, wall.x, wall.x + wall.w);
+        const closestY = clamp(p.y, wall.y, wall.y + wall.h);
+        const dx = p.x - closestX;
+        const dy = p.y - closestY;
+        const distSq = dx * dx + dy * dy;
+        if (distSq < r * r) {
+            const dist = Math.sqrt(distSq) || 0.001;  // Avoid div0
+            // Normal direction (from wall to puck, normalized)
+            let nx = dx / dist;
+            let ny = dy / dist;
+            // If dist==0 (fully inside), fallback to axis choice like before
+            if (dist < 0.001) {
+                const distLeft = Math.abs(p.x - wall.x);
+                const distRight = Math.abs(p.x - (wall.x + wall.w));
+                const distTop = Math.abs(p.y - wall.y);
+                const distBot = Math.abs(p.y - (wall.y + wall.h));
+                const minX = Math.min(distLeft, distRight);
+                const minY = Math.min(distTop, distBot);
+                if (minX < minY) {
+                    nx = (distLeft < distRight) ? -1 : 1;
+                    ny = 0;
+                } else {
+                    nx = 0;
+                    ny = (distTop < distBot) ? -1 : 1;
+                }
+            }
+            // Push out along normal
+            const overlap = r - dist;
+            p.x += nx * overlap;
+            p.y += ny * overlap;
+            // Reflect velocity (with damping, adjust 0.5 to taste for bounciness)
+            const dot = p.vx * nx + p.vy * ny;
+            p.vx -= 2 * dot * nx;
+            p.vy -= 2 * dot * ny;
+            // Dampen overall (optional, simulates energy loss)
+            p.vx *= 0.8;
+            p.vy *= 0.8;
+            hit = true;
+        }
+    }
+    return hit;
+}
+
+
+
+// ==========================================
+// PLAYER-ONLY GOAL BLOCKS (Simple Box Prevents Entering Net)
+// ==========================================
+
+const GOAL_BLOCKS = [];
+
+function buildGoalBlocksForPlayers() {
+    GOAL_BLOCKS.length = 0;
+
+    const depth = 28;         // how far box extends behind the goal line
+    const height = 60;        // net height
+    const half = height / 2;
+
+    const top = RY - half;
+    const bot = RY + half;
+
+    // LEFT GOAL
+    GOAL_BLOCKS.push({
+        x: goal1 - depth,
+        y: top,
+        w: depth,
+        h: height
+    });
+
+    // RIGHT GOAL
+    GOAL_BLOCKS.push({
+        x: goal2,
+        y: top,
+        w: depth,
+        h: height
+    });
+}
+
+function blockPlayerFromGoal(p) {
+    const r = p.size / 2;
+
+    for (const g of GOAL_BLOCKS) {
+
+        const closestX = clamp(p.x, g.x, g.x + g.w);
+        const closestY = clamp(p.y, g.y, g.y + g.h);
+
+        const dx = p.x - closestX;
+        const dy = p.y - closestY;
+        const distSq = dx*dx + dy*dy;
+
+        if (distSq < r*r) {
+            const dist = Math.sqrt(distSq) || 0.001;
+            const nx = dx / dist;   // normal X
+            const ny = dy / dist;   // normal Y
+            const overlap = r - dist;
+
+            // --- PUSH OUT ---
+            p.x += nx * overlap;
+            p.y += ny * overlap;
+
+            // --- SLIDE (Reflect only normal component) ---
+            const dot = p.vx * nx + p.vy * ny;    // component along the normal
+
+            // Remove *only* the inward velocity
+            if (dot < 0) {
+                p.vx -= dot * nx;   // subtract normal direction
+                p.vy -= dot * ny;
+            }
+
+            // Light friction so they don't bounce forever
+            p.vx *= 0.99;
+            p.vy *= 0.99;
+        }
+    }
+}
+
+
+
+
+function debugDrawGoalBlocks(ctx) {
+    ctx.save();
+    ctx.globalAlpha = 0.6;
+    ctx.fillStyle = "red";
+
+    for (const g of GOAL_BLOCKS) {
+        ctx.fillRect(g.x, g.y, g.w, g.h);
+    }
+
+    ctx.restore();
+}
+
+
+
+
+function redirectShotBehindNet(p) {
+
+    // Calculate shot direction
+    const aimX = Math.cos(p.angle);
+    const aimY = Math.sin(p.angle);
+
+    let attackingRight = (p.team === 0);
+
+    // Player behind the left net (attacking right)
+    if (attackingRight) {
+        if (p.x < goal1 + 5 && aimX > 0) {
+            // If shot is almost horizontal, force upward
+            if (Math.abs(aimY) < 0.2) {
+                return { x: p.x, y: p.y - 300 };
+            }
+            // Otherwise, keep their vertical bias
+            return { x: p.x, y: p.y + (aimY < 0 ? -300 : 300) };
+        }
+    }
+
+    // Player behind the right net (attacking left)
+    else {
+        if (p.x > goal2 - 5 && aimX < 0) {
+            if (Math.abs(aimY) < 0.2) {
+                return { x: p.x, y: p.y - 300 };
+            }
+            return { x: p.x, y: p.y + (aimY < 0 ? -300 : 300) };
+        }
+    }
+
+    return null;
+}
