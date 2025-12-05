@@ -113,31 +113,32 @@ function getPuckCarrier() {
 
 
 // =========================================================
-// Predict target for a pass
+// Predict target for a pass (VARIABLE SPEED)
 // =========================================================
-// 
-// passer = skater with puck
-// receiver = teammate
 function predictLeadPass(passer, receiver) {
 
-    // Estimated puck pass speed (px/frame)
-    const PASS_SPEED = 6.0;
-
-    // Vector from passer → receiver (current)
+    // 1. Calculate Distance
     const dx = receiver.x - passer.x;
     const dy = receiver.y - passer.y;
-
-    // Rough time for puck to arrive (frames)
     const distNow = Math.hypot(dx, dy);
+    
     if (distNow < 1) return null;
 
-    const travelFrames = distNow / PASS_SPEED;
+    // 2. VARIABLE SPEED LOGIC (Must match 'passPuckToTeammate' in main file)
+    // Base speed 5.5.
+    // Add extra power for distance: +1 speed for every 40 pixels.
+    // Cap at 14.0 (Laser beam).
+    let passSpeed = 5.5 + (distNow / 40.0);
+    if (passSpeed > 14.0) passSpeed = 14.0;
 
-    // Lead position = receiver + velocity * travel time
+    // 3. Calculate Travel Time
+    const travelFrames = distNow / passSpeed;
+
+    // 4. Calculate Lead Position
     const leadX = receiver.x + receiver.vx * travelFrames;
     const leadY = receiver.y + receiver.vy * travelFrames;
 
-    // Clamp inside rink (same limits your other helpers use)
+    // Clamp inside rink
     const px = Math.max(120, Math.min(880, leadX));
     const py = Math.max(170, Math.min(430, leadY));
 
@@ -290,27 +291,66 @@ function passIntersectsOwnNet(p, x2, y2) {
 
 
 
+// =========================================================
+// SMART INTERCEPT (Iterative Solver)
+// =========================================================
 function getPuckIntercept(p) {
     const dist = Math.hypot(puck.x - p.x, puck.y - p.y);
-    const puckSpeed = Math.hypot(puck.vx, puck.vy);
-    const mySpeed = 2.2; 
+    const pSpeed = Math.hypot(puck.vx, puck.vy);
     
-    // If puck is slow, go to it directly
-    if (puckSpeed < 1.5) return { x: puck.x, y: puck.y };
+    // 1. STATIONARY PUCK FIX
+    if (pSpeed < 1.5) {
+        
+        // A. CLOSE RANGE (< 60px): AIM DIRECTLY AT PUCK
+        // This stops the "orbiting" effect. If we aim directly at it,
+        // the skater can turn tightly enough to hit the hitbox.
+        if (dist < 30) {
+            return { x: puck.x, y: puck.y };
+        }
+        
+        // B. LONG RANGE: AIM THROUGH IT (SPRINT)
+        // If far away, aim past it to keep velocity high.
+        const angle = Math.atan2(puck.y - p.y, puck.x - p.x);
+        return { 
+            x: puck.x + Math.cos(angle) * 40, 
+            y: puck.y + Math.sin(angle) * 40 
+        };
+    }
 
-    // Predict where it will be
-    let framesToReach = dist / mySpeed;
-    if (framesToReach > 60) framesToReach = 60; 
+    // 2. MOVING PUCK: EXACT PHYSICS SIMULATION
+    let tX = puck.x;
+    let tY = puck.y;
+    let tVX = puck.vx;
+    let tVY = puck.vy;
+    
+    const mySpeed = 2.3; 
+    const friction = 0.993; 
 
-    let tx = puck.x + puck.vx * framesToReach;
-    let ty = puck.y + puck.vy * framesToReach;
+    for(let frames = 1; frames <= 60; frames++) {
+        tX += tVX;
+        tY += tVY;
+        tVX *= friction;
+        tVY *= friction;
 
-    // Clamp to Rink (approximate bounds)
-    tx = Math.max(120, Math.min(880, tx));
-    ty = Math.max(170, Math.min(430, ty));
+        const d = Math.hypot(tX - p.x, tY - p.y);
+        const possibleDist = frames * mySpeed;
 
-    return { x: tx, y: ty };
+        if (possibleDist >= d) {
+            return {
+                x: Math.max(120, Math.min(880, tX)), 
+                y: Math.max(170, Math.min(430, tY))
+            };
+        }
+    }
+
+    return {
+        x: Math.max(120, Math.min(880, tX)),
+        y: Math.max(170, Math.min(430, tY))
+    };
 }
+
+
+
 
 function getAggressiveGapTarget(defender, carrier, goalX) {
     // Defines where a defender should stand relative to an attacker
