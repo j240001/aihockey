@@ -184,7 +184,7 @@
             "Senators",
             "OTT",
             think,
-            { main: "#420000", secondary: "#780000"} // dark red - red
+            { main: "#820000", secondary: "#780000"} // dark red - red
         );
     }
 

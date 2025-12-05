@@ -3231,20 +3231,56 @@ function updateAISkater(p) {
     }
 
     // =========================================================
-    // 3. AI STRATEGY DECISION (REWIRED)
+    // 3. AI STRATEGY DECISION
     // =========================================================
     let d = null;
-
-    // Check which strategy object this player's team should use
     const activeStrategy = (p.team === 0) ? Team0_Strategy : Team1_Strategy;
 
     if (activeStrategy) {
-        // Delegate thinking to the loaded strategy (bt1.js)
         d = activeStrategy.think(p);
     } else {
-        // Fallback safety if strategy didn't load
-        console.warn(`No strategy loaded for Team ${p.team} - Player ${p.id} is idle.`);
         d = { tx: p.x, ty: p.y, action: "none" };
+    }
+
+    // =========================================================
+    // *** BRAIN STEM OVERRIDE: ANTI-CAMPING & DELAYED OFFSIDE ***
+    // =========================================================
+    
+    // A. Check for Delayed Offside (Global Game State)
+    const isDelayed = (offsideState.active && offsideState.team === p.team);
+
+    // B. Check for Camping (Individual Player State)
+    let isCamping = false;
+    // Only check camping if we don't have the puck (Carriers get whistled, not camping logic)
+    if (puck.ownerId !== p.id) {
+        const blueLineOffset = 110; 
+        const rightLine = RX + blueLineOffset;
+        const leftLine  = RX - blueLineOffset;
+        
+        // Determine attack direction
+        const attackingRight = (p.team === 0) ? team0AttacksRight : !team0AttacksRight;
+
+        if (attackingRight) {
+            // Zone starts past Right Blue Line
+            // I am Deep (> Line) AND Puck is Shallow (<= Line)
+            if (p.x > rightLine && puck.x <= rightLine) isCamping = true;
+        } else {
+            // Zone starts past Left Blue Line
+            // I am Deep (< Line) AND Puck is Shallow (>= Line)
+            if (p.x < leftLine && puck.x >= leftLine) isCamping = true;
+        }
+    }
+
+    // C. FORCE TAG UP
+    if (isDelayed || isCamping) {
+        // Calculate safe spot just outside the blue line
+        const attackingRight = (p.team === 0) ? team0AttacksRight : !team0AttacksRight;
+        const dir = attackingRight ? 1 : -1;
+        
+        // Target: Center Ice +/- 100 (Safe buffer outside the 110 line)
+        d.tx = RX + (dir * 100);
+        d.ty = RY; 
+        d.action = "none"; // Cancel any shots/passes
     }
     // =========================================================
 
@@ -3255,9 +3291,7 @@ function updateAISkater(p) {
     // 1. Get base safe target (avoiding the back of the net)
     let navTarget = getNetAvoidanceTarget(p, d.tx, d.ty);
     
-    // 2. Apply Evasion (The new check)
-    // Only evade if we are moving normally (action "none").
-    // If we are committed to shooting or passing, we ignore threats to finish the play.
+    // 2. Apply Evasion 
     if (d.action === "none") {
         navTarget = applyEvasion(p, navTarget.x, navTarget.y);
     }

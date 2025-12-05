@@ -110,6 +110,186 @@ function getPuckCarrier() {
 
 // --- 3. TACTICAL HELPERS (Calculations) ---
 
+
+
+// =========================================================
+// Predict target for a pass
+// =========================================================
+// 
+// passer = skater with puck
+// receiver = teammate
+function predictLeadPass(passer, receiver) {
+
+    // Estimated puck pass speed (px/frame)
+    const PASS_SPEED = 6.0;
+
+    // Vector from passer → receiver (current)
+    const dx = receiver.x - passer.x;
+    const dy = receiver.y - passer.y;
+
+    // Rough time for puck to arrive (frames)
+    const distNow = Math.hypot(dx, dy);
+    if (distNow < 1) return null;
+
+    const travelFrames = distNow / PASS_SPEED;
+
+    // Lead position = receiver + velocity * travel time
+    const leadX = receiver.x + receiver.vx * travelFrames;
+    const leadY = receiver.y + receiver.vy * travelFrames;
+
+    // Clamp inside rink (same limits your other helpers use)
+    const px = Math.max(120, Math.min(880, leadX));
+    const py = Math.max(170, Math.min(430, leadY));
+
+    return { x: px, y: py, t: travelFrames };
+}
+
+
+
+// =========================================================
+// Determine which teammates are "open"
+// =========================================================
+// 
+function findOpenTeammates(passer) {
+
+    const results = [];
+    const mates = players.filter(
+        m => m.team === passer.team && m.id !== passer.id && m.type === "skater"
+    );
+
+    for (const mate of mates) {
+
+        // --- Predict where teammate will be ---
+        const lead = predictLeadPass(passer, mate);
+        if (!lead) continue;
+
+        const laneCurrentBlocked =
+            isLaneBlocked(passer.x, passer.y, mate.x, mate.y, passer.team) ||
+            passIntersectsOwnNet(passer, mate.x, mate.y);
+
+        const laneFutureBlocked =
+            isLaneBlocked(passer.x, passer.y, lead.x, lead.y, passer.team) ||
+            passIntersectsOwnNet(passer, lead.x, lead.y);
+
+
+        const currentClear = !laneCurrentBlocked;
+        const futureClear  = !laneFutureBlocked;
+
+        results.push({
+            mate: mate,
+            currentClear,
+            futureClear,
+            leadX: lead.x,
+            leadY: lead.y,
+            travelFrames: lead.t
+        });
+    }
+
+    return results;
+}
+
+
+
+
+// =========================================================
+// Neutral Zone: Find eligible forward targets for a D-man
+// =========================================================
+function findNeutralZonePassTargets(passer) {
+
+    const results = [];
+
+    const mates = players.filter(m =>
+        m.team === passer.team &&
+        m.id !== passer.id &&
+        m.type === "skater"
+    );
+
+    // Determine attacking direction
+    const enemyGoalX = (passer.team === 0 ? goal2 : goal1);
+    const forwardDir = Math.sign(enemyGoalX - passer.x);
+
+    for (const mate of mates) {
+
+        const lead = predictLeadPass(passer, mate);
+        if (!lead) continue;
+
+        // Must be ahead of the passer
+        const ahead = (mate.x - passer.x) * forwardDir > 0;
+        if (!ahead) continue;
+
+        // Must NOT already be inside O-zone early (offside morons)
+        const blueLineX = RX + (110 * forwardDir);
+        const matePastBlue = (mate.x - blueLineX) * forwardDir > 0;
+        if (matePastBlue) continue;
+
+        // Passing lane must be clear (including net)
+        const laneCurrentBlocked =
+            isLaneBlocked(passer.x, passer.y, mate.x, mate.y, passer.team) ||
+            passIntersectsOwnNet(passer, mate.x, mate.y);
+
+        const laneFutureBlocked =
+            isLaneBlocked(passer.x, passer.y, lead.x, lead.y, passer.team) ||
+            passIntersectsOwnNet(passer, lead.x, lead.y);
+
+        if (laneCurrentBlocked && laneFutureBlocked) continue;
+
+        results.push({
+            mate,
+            leadX: lead.x,
+            leadY: lead.y
+        });
+    }
+
+    return results;
+}
+
+
+
+
+
+
+// =====================================================
+// PURE GEOMETRY: Does the pass line intersect our own goal?
+// =====================================================
+function passIntersectsOwnNet(p, x2, y2) {
+
+    // Determine which goal belongs to this team
+    const myGoalX = (p.team === 0 ? goal1 : goal2);
+
+    // Net dimensions (use same values from GOAL_BLOCKS / GOAL_WALLS)
+    const netHalf = 30;      // half height of net opening (~60px)
+    const netTop  = RY - netHalf;
+    const netBot  = RY + netHalf;
+
+    // Build a segment for the pass
+    const x1 = p.x, y1 = p.y;
+
+    // If both endpoints are completely outside the net x-range, bail out
+    const minX = Math.min(x1, x2);
+    const maxX = Math.max(x1, x2);
+
+    // Net occupies between myGoalX - depth  to myGoalX (for left goal)
+    // or myGoalX to myGoalX + depth (for right goal).
+    const depth = 35;   // Matches your actual physics walls (back + sides)
+
+    const netMinX = (myGoalX < RX ? myGoalX - depth : myGoalX);
+    const netMaxX = (myGoalX < RX ? myGoalX : myGoalX + depth);
+
+    // Quick reject
+    if (maxX < netMinX || minX > netMaxX) return false;
+
+    // Check vertical overlap
+    const minY = Math.min(y1, y2);
+    const maxY = Math.max(y1, y2);
+
+    if (maxY < netTop || minY > netBot) return false;
+
+    // If the segment touches the rectangular net collision area → blocked
+    return true;
+}
+
+
+
 function getPuckIntercept(p) {
     const dist = Math.hypot(puck.x - p.x, puck.y - p.y);
     const puckSpeed = Math.hypot(puck.vx, puck.vy);

@@ -1,326 +1,314 @@
 // ==========================================
-// STRATEGY: ORIGINAL TEAM 0 (BT8)
+// STRATEGY: BT8 - THE RELAY SYSTEM (Safety First)
 // ==========================================
-// - "Total Offense"
-// - Procedural logic (Conditions -> Actions)
-// - Very aggressive shooting (One-Timers)
+// - Fix: Defensive Slot = HARD CLEAR to boards.
+// - No more passing across the middle in D-Zone.
 // ==========================================
 
 (function() {
 
-    const STRATEGY_ID   = "BT8_TotalOffense";
-    const STRATEGY_NAME = "Original Team 0";
+    const STRATEGY_ID   = "BT8_Relay";
+    const STRATEGY_NAME = "The Relay System";
 
-    const T0 = {
-        shoot_range: 250,
-        guaranteed_range: 140, 
-        blue_line_offset: 110,
-        check_range: 80
-    };
+    const RY = 320; 
+    const RX = 500; 
 
-    // --- TRANSLATOR: MAP NEW ROLES TO OLD (A/B/C) ---
-    function getOldRole(newRole) {
-        // A = Defender
-        if (newRole === "LD" || newRole === "RD") return "A";
-        // B = Center/Left (Top Lane preference)
-        if (newRole === "C" || newRole === "LW") return "B";
-        // C = Right (Bottom Lane preference)
-        return "C";
+    // --- HELPER: DETECT ZONE (0-10) ---
+    function getZoneID(puckX, puckY, attackingRight) {
+        const absX = attackingRight ? puckX : (1000 - puckX); 
+        let yZone = "C";
+        if (puckY < 260) yZone = "T";
+        if (puckY > 380) yZone = "B";
+
+        if (absX < 350) {
+            if (absX < 100) return 0; // Behind Net
+            if (yZone === "T") return 1;
+            if (yZone === "B") return 3;
+            return 2; // D-Slot (Danger Zone)
+        }
+        if (absX < 650) {
+            if (yZone === "T") return 4; 
+            if (yZone === "B") return 6; 
+            return 5; 
+        }
+        if (absX < 900) {
+            if (yZone === "T") return 7; 
+            if (yZone === "B") return 9; 
+            return 8; 
+        }
+        return 10; 
     }
 
+    // --- HELPER: DEFINE CHAIRS ---
+    function getChairs(zoneID, bb) {
+        const myGoal = bb.myGoalX;
+        const enemyGoal = bb.enemyGoal;
+        const dir = (bb.attackingRight) ? 1 : -1; 
+
+        let c1 = { x: RX, y: RY };
+        let c2 = { x: RX, y: RY };
+
+        const offenseMode = bb.teamHasPuck;
+
+        switch (zoneID) {
+            case 0: 
+                c1 = { x: myGoal + (dir * 30), y: RY - 40 }; 
+                c2 = { x: myGoal + (dir * 30), y: RY + 40 }; 
+                break;
+            case 1: 
+            case 3: 
+                if (offenseMode) {
+                    c1 = { x: RX, y: RY }; 
+                    c2 = { x: myGoal + (dir * 40), y: RY }; 
+                } else {
+                    c1 = { x: myGoal + (dir * 30), y: RY - 30 }; 
+                    c2 = { x: myGoal + (dir * 120), y: RY };     
+                }
+                break;
+            case 2: // Slot
+                // If we are in panic mode, chairs go WIDE to boards
+                c1 = { x: myGoal + (dir * 100), y: RY - 200 }; // Top Wall
+                c2 = { x: myGoal + (dir * 100), y: RY + 200 }; // Bot Wall
+                break;
+            case 4: 
+            case 6: 
+            case 5:
+                if (offenseMode) {
+                    c1 = { x: enemyGoal - (dir * 300), y: RY - 100 }; 
+                    c2 = { x: enemyGoal - (dir * 300), y: RY + 100 }; 
+                } else {
+                    c1 = { x: RX, y: RY }; 
+                    c2 = { x: myGoal + (dir * 350), y: RY }; 
+                }
+                break;
+            case 7: 
+            case 9: 
+                c1 = { x: enemyGoal - (dir * 50), y: (puck.y > RY) ? RY - 200 : RY + 200 }; 
+                c2 = { x: enemyGoal - (dir * 180), y: RY };      
+                break;
+            case 8: 
+            case 10: 
+                c1 = { x: enemyGoal - (dir * 30), y: RY - 50 }; 
+                c2 = { x: enemyGoal - (dir * 30), y: RY + 50 }; 
+                break;
+        }
+        return [c1, c2];
+    }
+
+
     // --- BLACKBOARD ---
-    function makeBB_T0(p) {
+    function makeBB(p) {
         const myGoalX = (p.team === 0) ? goal1 : goal2;
         const enemyGoal = (p.team === 0) ? goal2 : goal1;
         const attackingRight = (enemyGoal > RX);
         
-        const distToNet = Math.hypot(enemyGoal - p.x, RY - p.y);
-        const carrier = getPlayerById(puck.ownerId);
-        
-        const laneBlocked = isLaneBlocked(p.x, p.y, enemyGoal, RY, p.team);
+        const blueLineOffset = 110;
+        const blueLineX = attackingRight ? (RX + blueLineOffset) : (RX - blueLineOffset);
+        const puckInOZone = attackingRight ? (puck.x > blueLineX) : (puck.x < blueLineX);
+        const puckInNeutral = !puckInOZone;
 
-        let amIClosest = true;
-        const myDist = Math.hypot(puck.x - p.x, puck.y - p.y);
-        for (const mate of players) {
-            if (mate.team === p.team && mate.id !== p.id && mate.type === "skater") {
-                const mateDist = Math.hypot(puck.x - mate.x, puck.y - mate.y);
-                if (mateDist < myDist) {
-                    amIClosest = false; 
-                    break; 
+        const teammates = players.filter(m => m.team === p.team && m.type === "skater");
+        teammates.sort((a, b) => {
+            const dA = Math.hypot(puck.x - a.x, puck.y - a.y);
+            const dB = Math.hypot(puck.x - b.x, puck.y - b.y);
+            return dA - dB;
+        });
+        const engagedId = teammates[0].id; 
+        const amIEngaged = (p.id === engagedId);
+        
+        const teamHasPuck = (puck.ownerId !== null && getPlayerById(puck.ownerId).team === p.team);
+
+        let myChair = null;
+        let zone = getZoneID(puck.x, puck.y, attackingRight);
+
+        if (!amIEngaged) {
+            const chairs = getChairs(zone, { myGoalX, enemyGoal, attackingRight, teamHasPuck });
+            const pA = teammates[1]; 
+            const pB = teammates[2]; 
+
+            if (pA && pB) {
+                const dist1 = Math.hypot(pA.x - chairs[0].x, pA.y - chairs[0].y) + 
+                              Math.hypot(pB.x - chairs[1].x, pB.y - chairs[1].y);
+                const dist2 = Math.hypot(pA.x - chairs[1].x, pA.y - chairs[1].y) + 
+                              Math.hypot(pB.x - chairs[0].x, pB.y - chairs[0].y);
+
+                if (dist1 < dist2) {
+                    if (p.id === pA.id) myChair = chairs[0];
+                    if (p.id === pB.id) myChair = chairs[1];
+                } else {
+                    if (p.id === pA.id) myChair = chairs[1];
+                    if (p.id === pB.id) myChair = chairs[0];
+                }
+            } else {
+                myChair = chairs[0]; 
+            }
+        }
+
+        let forwardTarget = null;
+        if (p.id === puck.ownerId) {
+            const dir = attackingRight ? 1 : -1;
+            let bestLead = -999;
+
+            for (const m of teammates) {
+                if (m.id === p.id) continue;
+                const leadDistance = (m.x - p.x) * dir;
+                
+                if (leadDistance > 50) {
+                    const isOffside = attackingRight 
+                        ? (m.x > blueLineX && puck.x < blueLineX)
+                        : (m.x < blueLineX && puck.x > blueLineX);
+                    
+                    if (isOffside) continue;
+                    if (isLaneBlocked(p.x, p.y, m.x, m.y, p.team)) continue;
+
+                    if (leadDistance > bestLead) {
+                        bestLead = leadDistance;
+                        forwardTarget = m;
+                    }
                 }
             }
         }
-        
-        // Zone Definitions
-        const blueLineX = attackingRight ? (RX + 110) : (RX - 110);
-        const inOffensiveZone = attackingRight ? (p.x > blueLineX) : (p.x < blueLineX);
-        const puckInOffensiveZone = attackingRight ? (puck.x > blueLineX) : (puck.x < blueLineX);
 
-        // *** APPLY TRANSLATED ROLE TO P ***
-        // We create a proxy "p" so we don't mess up the real player object
-        const p_translated = Object.create(p);
-        p_translated.role = getOldRole(p.role);
+        const distNet = Math.hypot(p.x - enemyGoal, p.y - RY);
+        const netPathBlocked = isLaneBlocked(p.x, p.y, enemyGoal, RY, p.team);
+        const distToBlueLine = Math.abs(p.x - blueLineX);
+        const amIAheadOfPuck = attackingRight ? (p.x > puck.x) : (p.x < puck.x);
 
         return {
-            p: p_translated, // Use the version with "A/B/C" role
-            real_p: p,       // Keep ref to real player
-            myGoalX,
-            enemyGoal,
-            attackingRight,
-            distToNet,
-            laneBlocked,
-            amIClosest,
-            inOffensiveZone,
-            puckInOffensiveZone,
-            
-            isDelayedOffside: (offsideState.active && offsideState.team === p.team),
+            p, amIEngaged, myChair, zone,
+            enemyGoal, myGoalX, attackingRight,
+            blueLineX, puckInNeutral,
+            distNet, netPathBlocked,
+            distToBlueLine, amIAheadOfPuck,
+            forwardTarget, 
             hasPuck: (puck.ownerId === p.id),
-            justReceived: (puck.ownerId === p.id && p.possessionTime < 30), 
-            teamHasPuck: (carrier && carrier.team === p.team),
-            oppHasPuck: (carrier && carrier.team !== p.team),
-            loosePuck: (puck.ownerId === null),
-            carrier,
-            distToCarrier: carrier ? Math.hypot(carrier.x - p.x, carrier.y - p.y) : 9999
+            teamHasPuck,
+            oppHasPuck: (puck.ownerId !== null && getPlayerById(puck.ownerId).team !== p.team),
+            loosePuck: (puck.ownerId === null)
         };
     }
 
-    // --- CONDITIONS ---
-    const T0_cHasPuck        = new ConditionNode(bb => bb.hasPuck);
-    const T0_cOppHasPuck     = new ConditionNode(bb => bb.oppHasPuck);
-    const T0_cLoosePuck      = new ConditionNode(bb => bb.loosePuck);
-    const T0_cTeamHasPuck    = new ConditionNode(bb => bb.teamHasPuck);
-    const T0_cAmIClosest     = new ConditionNode(bb => bb.amIClosest);
-    const T0_cInOffZone      = new ConditionNode(bb => bb.inOffensiveZone);
-    const T0_cDelayedOffside = new ConditionNode(bb => bb.isDelayedOffside);
-    const T0_cJustReceived   = new ConditionNode(bb => bb.justReceived);
+    // ==========================================
+    // CONDITIONS & ACTIONS
+    // ==========================================
 
-    const T0_cCanShoot = new ConditionNode(bb => {
-        if (bb.distToNet > T0.shoot_range) return false;
-        if (bb.distToNet < T0.guaranteed_range) return true;
-        if (bb.laneBlocked) return false;
-        return true;
+    const cAmEngaged = new ConditionNode(bb => bb.amIEngaged);
+    const cHasPuck   = new ConditionNode(bb => bb.hasPuck);
+    
+    // *** PANIC CHECK ***
+    // If I have the puck in Zone 2 (Slot) or Zone 0 (Behind Net), I am in Danger.
+    const cDangerZone = new ConditionNode(bb => (bb.zone === 2 || bb.zone === 0));
+
+    const cCanShoot  = new ConditionNode(bb => {
+        if (Math.abs(bb.p.y - RY) > 80 && Math.abs(bb.p.x - bb.enemyGoal) < 20) return false;
+        if (bb.distNet < 220) return true;
+        if (bb.distNet < 300 && !bb.netPathBlocked) return true;
+        return false;
     });
 
-    const T0_cCanCheck = new ConditionNode(bb => {
-        return (bb.oppHasPuck && bb.distToCarrier < T0.check_range);
+    const cCanRelay  = new ConditionNode(bb => bb.forwardTarget !== null);
+
+    const cRushingOffside = new ConditionNode(bb => {
+        if (!bb.puckInNeutral) return false; 
+        if (!bb.amIAheadOfPuck) return false; 
+        if (bb.distToBlueLine > 60) return false; 
+        return true; 
     });
 
-    // --- ACTIONS ---
-    const T0_actRipShot = new ActionNode(bb => {
-        const spread = (Math.random() * 20) - 10;
-        return { tx: bb.enemyGoal, ty: RY + spread, action: "shoot" };
+    const cEntryBlocked = new ConditionNode(bb => {
+        if (!bb.puckInNeutral) return false;
+        if (bb.distToBlueLine > 100) return false;
+        if (bb.netPathBlocked) return true; 
+        return false;
     });
 
-    const T0_actChase = new ActionNode(bb => {
-        return { tx: puck.x, ty: puck.y, action: "none" };
-    });
-
-    const T0_actBodyCheck = new ActionNode(bb => {
-        if (!bb.carrier) return null;
-        const tx = bb.carrier.x + bb.carrier.vx * 15;
-        const ty = bb.carrier.y + bb.carrier.vy * 15;
-        return { tx: tx, ty: ty, action: "none" };
-    });
-
-    const T0_actDriveLane = new ActionNode(bb => {
-        let laneOffset = 0;
-        // OLD ROLE LOGIC (A/B/C)
-        if (bb.p.role === "B") laneOffset = -80;
-        if (bb.p.role === "C") laneOffset = 80;
-        if (bb.p.role === "A") laneOffset = 0;
-
-        return { tx: bb.enemyGoal, ty: RY + laneOffset, action: "none" };
-    });
-
-    const T0_actTagUp = new ActionNode(bb => {
-        const dir = bb.attackingRight ? 1 : -1;
-        const safeX = RX + (dir * 80); 
-        return { tx: safeX, ty: RY, action: "none" };
-    });
-
-    const T0_actSupportHover = new ActionNode(bb => {
-        let laneOffset = 0;
-        if (bb.p.role === "B") laneOffset = -60;
-        if (bb.p.role === "C") laneOffset = 60;
-        const dir = bb.attackingRight ? 1 : -1;
-        return { tx: puck.x - (dir * 100), ty: RY + laneOffset, action: "none" };
-    });
-
-    const T0_actBackcheck = new ActionNode(bb => {
-        const dir = bb.attackingRight ? 1 : -1;
-        const slotX = bb.myGoalX + (dir * 120);
-        let laneOffset = 0;
-        if (bb.p.role === "B") laneOffset = -50;
-        if (bb.p.role === "C") laneOffset = 50;
-        return { tx: slotX, ty: RY + laneOffset, action: "none" };
-    });
-
-    const T0_actGapControl = new ActionNode(bb => {
-        if (!bb.carrier) return { tx: bb.myGoalX, ty: RY, action: "none" };
-        const midX = (bb.carrier.x + bb.myGoalX) / 2;
-        const midY = (bb.carrier.y + RY) / 2;
-        return { tx: midX, ty: midY, action: "none" };
-    });
-
-    const T0_actForwardPass = new ActionNode(bb => {
-        const forwardDir = bb.attackingRight ? 1 : -1;
-        const potentialTargets = players.filter(m => {
-            if (m.team !== bb.p.team || m.id === bb.p.id) return false;
-            if (m.stunTimer > 0) return false;
-            if ((m.x - bb.p.x) * forwardDir <= 40) return false;
-            if (Math.hypot(m.x - bb.p.x, m.y - bb.p.y) > 350) return false;
-            return true;
-        });
-        potentialTargets.sort((a, b) => {
-            const distA = Math.hypot(bb.enemyGoal - a.x, RY - a.y);
-            const distB = Math.hypot(bb.enemyGoal - b.x, RY - b.y);
-            return distA - distB; 
-        });
-        for (const target of potentialTargets) {
-            if (!isLaneBlocked(bb.p.x, bb.p.y, target.x, target.y, bb.p.team)) {
-                return { tx: target.x, ty: target.y, action: "pass", target: target };
-            }
-        }
-        return null;
-    });
-
-    const T0_actCrossCreasePass = new ActionNode(bb => {
-        if (!bb.inOffensiveZone) return null;
-        const mates = players.filter(m => m.team === bb.p.team && m.id !== bb.p.id);
-        const blueLineX = bb.attackingRight ? (RX + 110) : (RX - 110);
-        for (const m of mates) {
-            if (m.stunTimer > 0) continue;
-            const dist = Math.hypot(m.x - bb.p.x, m.y - bb.p.y);
-            if (dist > 350) continue;
-            const mateInZone = bb.attackingRight ? (m.x > blueLineX) : (m.x < blueLineX);
-            if (!mateInZone) continue;
-            const lateralDist = Math.abs(bb.p.y - m.y);
-            if (lateralDist < 120) continue; 
-            if (!isLaneBlocked(bb.p.x, bb.p.y, m.x, m.y, bb.p.team)) {
-                return { tx: m.x, ty: m.y, action: "pass", target: m };
-            }
-        }
-        return null;
-    });
-
-    const T0_actBailoutPass = new ActionNode(bb => {
-        const mates = players.filter(m => m.team === bb.p.team && m.id !== bb.p.id);
-        for (const m of mates) {
-            if (m.stunTimer > 0) continue;
-            if (Math.hypot(m.x - bb.p.x, m.y - bb.p.y) > 350) continue;
-            if (!isLaneBlocked(bb.p.x, bb.p.y, m.x, m.y, bb.p.team)) {
-                return { tx: m.x, ty: m.y, action: "pass", target: m };
-            }
-        }
-        return null; 
-    });
-
-    const T0_actDefenderMove = new ActionNode(bb => {
-        const dir = bb.attackingRight ? 1 : -1;
-        let puckZone = "neutral";
-        if (bb.attackingRight) {
-            if (puck.x < RX - 110) puckZone = "def";
-            else if (puck.x > RX + 110) puckZone = "off";
-        } else {
-            if (puck.x > RX + 110) puckZone = "def";
-            else if (puck.x < RX - 110) puckZone = "off";
-        }
-        let targetX = RX;
-        let targetY = RY;
-        if (puckZone === "def") {
-            targetX = bb.myGoalX + (dir * 140);
-            targetY = RY; 
-        } 
-        else if (puckZone === "neutral") {
-            targetX = bb.myGoalX + (dir * 280); 
-            targetY = puck.y;
-        }
-        else {
-            targetX = RX + (dir * 130); 
-            targetY = puck.y;
-            if (targetY < RY - 120) targetY = RY - 120;
-            if (targetY > RY + 120) targetY = RY + 120;
-        }
-        return { tx: targetX, ty: targetY, action: "none" };
-    });
-
-    // --- BEHAVIOR TREES ---
-    const T0_TREE_FORWARD = new SelectorNode([
-        new SequenceNode([ T0_cDelayedOffside, T0_actTagUp ]),
-        new SequenceNode([
-            T0_cHasPuck,
-            new SelectorNode([
-                new SequenceNode([ T0_cInOffZone, T0_cJustReceived, T0_actRipShot ]),
-                new SequenceNode([ new ConditionNode(bb => bb.distToNet < 140), T0_actRipShot ]),
-                T0_actCrossCreasePass,
-                new SequenceNode([ T0_cCanShoot, T0_actRipShot ]), 
-                T0_actForwardPass,
-                T0_actDriveLane 
-            ])
-        ]),
-        new SequenceNode([
-            T0_cLoosePuck,
-            new SelectorNode([
-                new SequenceNode([ T0_cAmIClosest, T0_actChase ]),
-                T0_actSupportHover
-            ])
-        ]),
-        new SequenceNode([ 
-            T0_cOppHasPuck, 
-            new SelectorNode([
-                new SequenceNode([ T0_cCanCheck, T0_actBodyCheck ]),
-                T0_actBackcheck
-            ])
-        ]),
-        new SequenceNode([ T0_cTeamHasPuck, T0_actDriveLane ]),
-        T0_actDriveLane 
-    ]);
-
-    const T0_TREE_DEFENDER = new SelectorNode([
-        new SequenceNode([ T0_cDelayedOffside, T0_actTagUp ]),
-        new SequenceNode([
-            T0_cHasPuck,
-            new SelectorNode([
-                new SequenceNode([ T0_cCanShoot, T0_actRipShot ]), 
-                T0_actForwardPass,
-                T0_actBailoutPass,
-                T0_actDriveLane 
-            ])
-        ]),
-        new SequenceNode([ 
-            T0_cOppHasPuck, 
-            new SelectorNode([
-                new SequenceNode([ T0_cCanCheck, T0_actBodyCheck ]),
-                T0_actGapControl 
-            ])
-        ]),
-        new SequenceNode([ T0_cLoosePuck, T0_cAmIClosest, T0_actChase ]),
-        T0_actDefenderMove
-    ]);
-
-    // --- MAIN THINK FUNCTION ---
-    function think(p) {
-        const bb = makeBB_T0(p);
+    const actShoot = new ActionNode(bb => ({ tx: bb.enemyGoal, ty: RY, action: "shoot" }));
+    const actDriveNet = new ActionNode(bb => ({ tx: bb.enemyGoal, ty: RY, action: "none" }));
+    const actChase = new ActionNode(bb => ({ tx: puck.x, ty: puck.y, action: "none" }));
+    
+    // *** HARD CLEAR ACTION ***
+    // Shoots the puck toward the boards at the blue line.
+    const actHardClear = new ActionNode(bb => {
+        // 1. Find nearest boards
+        const topDist = Math.abs(bb.p.y - 0);
+        const botDist = Math.abs(bb.p.y - 600);
+        const targetY = (topDist < botDist) ? 40 : 560; // Aim near wall
         
-        // Use mapped roles (A/B/C) to select tree
-        if (bb.p.role === "A") {
-            return T0_TREE_DEFENDER.tick(bb);
-        } 
-        else {
-            // In O-Zone, everyone is a forward anyway in this strategy
-            if (bb.puckInOffensiveZone) return T0_TREE_FORWARD.tick(bb);
-            return T0_TREE_FORWARD.tick(bb);
-        }
+        // 2. Find target X (Neutral Zone Wall)
+        // Aim past the blue line to ensure it clears zone
+        const dir = bb.attackingRight ? 1 : -1;
+        const targetX = bb.blueLineX + (dir * 50);
+
+        return { tx: targetX, ty: targetY, action: "shoot" };
+    });
+
+    const actRelayPass = new ActionNode(bb => {
+        const t = bb.forwardTarget;
+        return { tx: t.x, ty: t.y, action: "pass", target: t };
+    });
+
+    const actGoToChair = new ActionNode(bb => {
+        if (!bb.myChair) return null;
+        return { tx: bb.myChair.x, ty: bb.myChair.y, action: "none" };
+    });
+
+    const actStraddleLine = new ActionNode(bb => {
+        const offset = bb.attackingRight ? -15 : 15;
+        return { tx: bb.blueLineX + offset, ty: bb.p.y, action: "none" };
+    });
+    const actDumpIn = new ActionNode(bb => {
+        const cornerY = (bb.p.y < RY) ? RY + 200 : RY - 200;
+        return { tx: bb.enemyGoal, ty: cornerY, action: "shoot" };
+    });
+
+    // ==========================================
+    // THE TREE
+    // ==========================================
+    const ROOT_TREE = new SelectorNode([
+        
+        new SequenceNode([ 
+            new ConditionNode(bb => bb.teamHasPuck),
+            cRushingOffside, 
+            actStraddleLine 
+        ]),
+
+        new SequenceNode([ 
+            cAmEngaged,
+            new SelectorNode([
+                new SequenceNode([ 
+                    cHasPuck,
+                    new SelectorNode([
+                        // A. PANIC CLEAR (Priority #1 in D-Zone)
+                        // If in slot/behind net -> Get it out.
+                        new SequenceNode([ cDangerZone, actHardClear ]),
+
+                        // B. OFFENSE
+                        new SequenceNode([ cCanShoot, actShoot ]),
+                        new SequenceNode([ cCanRelay, actRelayPass ]),
+                        new SequenceNode([ cEntryBlocked, actDumpIn ]),
+                        actDriveNet
+                    ])
+                ]),
+                actChase
+            ])
+        ]),
+
+        actGoToChair
+    ]);
+
+    function think(p) {
+        const bb = makeBB(p);
+        return ROOT_TREE.tick(bb);
     }
 
     if (typeof registerStrategy === "function") {
         registerStrategy(
             STRATEGY_ID,
-            "The Total Offense",
+            STRATEGY_NAME,
             "Canadiens",
             "MTL",
             think,
-            { main: "#ff0509", secondary: "#0d05ff" } // red - blue
+            { main: "#af1e2d", secondary: "#192168" }
         );
     }
 
