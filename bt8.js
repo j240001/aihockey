@@ -1,8 +1,9 @@
 // ==========================================
-// STRATEGY: BT8 - THE RELAY SYSTEM (Safety First)
+// STRATEGY: BT8 - THE RELAY SYSTEM (D-Zone Safety)
 // ==========================================
-// - Fix: Defensive Slot = HARD CLEAR to boards.
-// - No more passing across the middle in D-Zone.
+// - Fix: "Paranoid Slot" (High Pressure sensitivity).
+// - Fix: D-Zone passes MUST target Neutral Zone.
+// - Result: No more passing into own slot/goalie.
 // ==========================================
 
 (function() {
@@ -22,9 +23,9 @@
 
         if (absX < 350) {
             if (absX < 100) return 0; // Behind Net
-            if (yZone === "T") return 1;
-            if (yZone === "B") return 3;
-            return 2; // D-Slot (Danger Zone)
+            if (yZone === "T") return 1; 
+            if (yZone === "B") return 3; 
+            return 2; // Slot (Danger)
         }
         if (absX < 650) {
             if (yZone === "T") return 4; 
@@ -51,25 +52,24 @@
         const offenseMode = bb.teamHasPuck;
 
         switch (zoneID) {
+            // --- DEFENSIVE ZONES ---
             case 0: 
-                c1 = { x: myGoal + (dir * 30), y: RY - 40 }; 
-                c2 = { x: myGoal + (dir * 30), y: RY + 40 }; 
-                break;
             case 1: 
+            case 2: 
             case 3: 
+                const strongSideY = (puck.y < RY) ? RY - 70 : RY + 70;
                 if (offenseMode) {
-                    c1 = { x: RX, y: RY }; 
-                    c2 = { x: myGoal + (dir * 40), y: RY }; 
+                    // Outlet: Push FAR into Neutral Zone (Stretch the ice)
+                    c1 = { x: myGoal + (dir * 350), y: (puck.y < RY) ? RY - 250 : RY + 250 }; 
+                    // Safety: Post
+                    c2 = { x: myGoal + (dir * 30), y: strongSideY }; 
                 } else {
                     c1 = { x: myGoal + (dir * 30), y: RY - 30 }; 
-                    c2 = { x: myGoal + (dir * 120), y: RY };     
+                    c2 = { x: myGoal + (dir * 30), y: RY + 30 }; 
                 }
                 break;
-            case 2: // Slot
-                // If we are in panic mode, chairs go WIDE to boards
-                c1 = { x: myGoal + (dir * 100), y: RY - 200 }; // Top Wall
-                c2 = { x: myGoal + (dir * 100), y: RY + 200 }; // Bot Wall
-                break;
+
+            // --- NEUTRAL ZONES ---
             case 4: 
             case 6: 
             case 5:
@@ -81,15 +81,17 @@
                     c2 = { x: myGoal + (dir * 350), y: RY }; 
                 }
                 break;
+
+            // --- OFFENSIVE ZONES ---
             case 7: 
             case 9: 
                 c1 = { x: enemyGoal - (dir * 50), y: (puck.y > RY) ? RY - 200 : RY + 200 }; 
-                c2 = { x: enemyGoal - (dir * 180), y: RY };      
+                c2 = { x: enemyGoal - (dir * 280), y: RY }; 
                 break;
             case 8: 
             case 10: 
                 c1 = { x: enemyGoal - (dir * 30), y: RY - 50 }; 
-                c2 = { x: enemyGoal - (dir * 30), y: RY + 50 }; 
+                c2 = { x: enemyGoal - (dir * 250), y: RY }; 
                 break;
         }
         return [c1, c2];
@@ -118,9 +120,26 @@
         
         const teamHasPuck = (puck.ownerId !== null && getPlayerById(puck.ownerId).team === p.team);
 
-        let myChair = null;
+        // Zone Detection
         let zone = getZoneID(puck.x, puck.y, attackingRight);
 
+        // --- PRESSURE CHECK (DYNAMIC) ---
+        // If in D-Zone Slot (Zone 2), be PARANOID (120px radius).
+        // Otherwise use standard 45px.
+        const panicRadius = (zone === 2) ? 120 : 45;
+        
+        let isPressured = false;
+        let isExtremePressure = false;
+        
+        for(const o of players) {
+            if(o.team !== p.team) {
+                const d = Math.hypot(p.x - o.x, p.y - o.y);
+                if(d < panicRadius) { isPressured = true; } 
+                if(d < 30) { isExtremePressure = true; } 
+            }
+        }
+
+        let myChair = null;
         if (!amIEngaged) {
             const chairs = getChairs(zone, { myGoalX, enemyGoal, attackingRight, teamHasPuck });
             const pA = teammates[1]; 
@@ -144,21 +163,44 @@
             }
         }
 
+        // --- FORWARD TARGET (THE FIX) ---
         let forwardTarget = null;
         if (p.id === puck.ownerId) {
             const dir = attackingRight ? 1 : -1;
             let bestLead = -999;
+
+            // Defensive Zone Blue Line (The line we must cross to exit)
+            // Attacking Right -> Exit line is Left Blue (RX - 110) ?? No, exit line is Blue (RX+110).
+            // Actually: 
+            // Attacking Right (0 -> 1000). D-Zone ends at RX-110? No.
+            // D-Zone is 0 to BlueLine. 
+            // If Attacking Right, D-Zone is Left Side (x < 390). Blue Line is 390 (RX-110).
+            const dZoneExitX = attackingRight ? (RX - 110) : (RX + 110);
 
             for (const m of teammates) {
                 if (m.id === p.id) continue;
                 const leadDistance = (m.x - p.x) * dir;
                 
                 if (leadDistance > 50) {
+                    
+                    // --- SAFETY CHECK ---
+                    // 1. Offside Check
                     const isOffside = attackingRight 
                         ? (m.x > blueLineX && puck.x < blueLineX)
                         : (m.x < blueLineX && puck.x > blueLineX);
-                    
                     if (isOffside) continue;
+
+                    // 2. D-ZONE TRAP CHECK [CRITICAL]
+                    // If I am in D-Zone (zone <= 3), I can ONLY pass to someone
+                    // who is OUT of the D-Zone (Neutral Zone).
+                    if (zone <= 3) {
+                        const mateOut = attackingRight 
+                            ? (m.x > dZoneExitX) 
+                            : (m.x < dZoneExitX);
+                        if (!mateOut) continue; // Deny pass to teammate stuck in mud
+                    }
+
+                    // 3. Lane Check
                     if (isLaneBlocked(p.x, p.y, m.x, m.y, p.team)) continue;
 
                     if (leadDistance > bestLead) {
@@ -175,7 +217,8 @@
         const amIAheadOfPuck = attackingRight ? (p.x > puck.x) : (p.x < puck.x);
 
         return {
-            p, amIEngaged, myChair, zone,
+            p, amIEngaged, myChair, zone, 
+            isPressured, isExtremePressure,
             enemyGoal, myGoalX, attackingRight,
             blueLineX, puckInNeutral,
             distNet, netPathBlocked,
@@ -195,9 +238,21 @@
     const cAmEngaged = new ConditionNode(bb => bb.amIEngaged);
     const cHasPuck   = new ConditionNode(bb => bb.hasPuck);
     
-    // *** PANIC CHECK ***
-    // If I have the puck in Zone 2 (Slot) or Zone 0 (Behind Net), I am in Danger.
-    const cDangerZone = new ConditionNode(bb => (bb.zone === 2 || bb.zone === 0));
+    const cDangerZone = new ConditionNode(bb => {
+        if (!bb.hasPuck) return false;
+        // Only panic in Defensive Zone
+        if (bb.zone > 3) return false;
+
+        // Extreme Panic
+        if (bb.isExtremePressure) return true;
+
+        // High Pressure Panic
+        if (bb.isPressured) {
+            if (bb.p.possessionTime < 30) return false; 
+            return true;
+        }
+        return false;
+    });
 
     const cCanShoot  = new ConditionNode(bb => {
         if (Math.abs(bb.p.y - RY) > 80 && Math.abs(bb.p.x - bb.enemyGoal) < 20) return false;
@@ -224,21 +279,34 @@
 
     const actShoot = new ActionNode(bb => ({ tx: bb.enemyGoal, ty: RY, action: "shoot" }));
     const actDriveNet = new ActionNode(bb => ({ tx: bb.enemyGoal, ty: RY, action: "none" }));
-    const actChase = new ActionNode(bb => ({ tx: puck.x, ty: puck.y, action: "none" }));
     
-    // *** HARD CLEAR ACTION ***
-    // Shoots the puck toward the boards at the blue line.
+    // Use the Predictive Intercept for Chasing
+    const actChase = new ActionNode(bb => ({ tx: bb.interceptPoint ? bb.interceptPoint.x : puck.x, ty: bb.interceptPoint ? bb.interceptPoint.y : puck.y, action: "none" }));
+    
+    // Add simple intercept logic back if missing
+    function predictPuckIntersection(p) {
+        const dx = puck.x - p.x;
+        const dy = puck.y - p.y;
+        const dist = Math.hypot(dx, dy);
+        let framesAhead = dist / 2.3;
+        if (framesAhead > 30) framesAhead = 30; 
+        const futureX = puck.x + (puck.vx * framesAhead * 0.7);
+        const futureY = puck.y + (puck.vy * framesAhead * 0.7);
+        return { x: futureX, y: futureY };
+    }
+    // Update actChase to use it
+    actChase.fn = (bb) => {
+        const pt = predictPuckIntersection(bb.p);
+        return { tx: pt.x, ty: pt.y, action: "none" };
+    };
+
     const actHardClear = new ActionNode(bb => {
-        // 1. Find nearest boards
         const topDist = Math.abs(bb.p.y - 0);
         const botDist = Math.abs(bb.p.y - 600);
-        const targetY = (topDist < botDist) ? 40 : 560; // Aim near wall
-        
-        // 2. Find target X (Neutral Zone Wall)
-        // Aim past the blue line to ensure it clears zone
+        const targetY = (topDist < botDist) ? 40 : 560; 
         const dir = bb.attackingRight ? 1 : -1;
-        const targetX = bb.blueLineX + (dir * 50);
-
+        const defBlueX = bb.attackingRight ? RX - 110 : RX + 110;
+        const targetX = defBlueX + (dir * 150); 
         return { tx: targetX, ty: targetY, action: "shoot" };
     });
 
@@ -278,8 +346,7 @@
                 new SequenceNode([ 
                     cHasPuck,
                     new SelectorNode([
-                        // A. PANIC CLEAR (Priority #1 in D-Zone)
-                        // If in slot/behind net -> Get it out.
+                        // A. PANIC CLEAR (Strict)
                         new SequenceNode([ cDangerZone, actHardClear ]),
 
                         // B. OFFENSE
