@@ -1,418 +1,348 @@
 // ==========================================
-// STRATEGY: BT_PASSMASTER_SURVIVAL (BT9)
-// VERSION: v2 — Corrected "NO PUCK → FUNNEL" logic
+// STRATEGY: THE POSSESSION MASTERS (BT8)
 // ==========================================
-// - If our team does NOT have the puck → ALL skaters return to funnel.
-// - Zero chasing. Zero intercepts. Zero skating after puck.
-// - If we have the puck → normal pass/carry/shoot logic.
-// - Slot passes forbidden. Slot clears sideways only.
-// - Defensive funnel depth: X (just above crease).
+// - High IQ passing system
+// - Dynamic spacing to avoid clusters
+// - Only shoots when truly open (>70% chance)
+// - Designed to beat aggressive rush teams
 // ==========================================
 
 (function() {
 
-    const STRATEGY_ID   = "BT_PassMaster_Survival_v2";
-    const STRATEGY_NAME = "Pass Masters (Survival v2)";
+    const STRATEGY_ID   = "BT8_Possession";
+    const STRATEGY_NAME = "Possession Masters";
 
-    // ------------------------------------------
-    // ROLE MAP
-    // ------------------------------------------
-    function roleMap(r) {
-        if (r === "C") return "P";
-        if (r === "LW" || r === "RW") return "S";
-        return "D";
+    // PASSING STATS TRACKER
+    if (!window.BT8_STATS) {
+        window.BT8_STATS = { attempts: 0, completions: 0 };
     }
 
-    // ------------------------------------------
-    // SLOT PASS REJECTION
-    // ------------------------------------------
-    function isOwnSlotPass(bb, x2, y2) {
-        const p = bb.p;
-        const forwardDir = bb.forwardDir;
-
-        const midX = (p.x + x2) * 0.5;
-        const inOurHalf = (forwardDir === 1) ? (midX < RX) : (midX > RX);
-        if (!inOurHalf) return false;
-
-        const slotHalf = 80;
-        const yNow = Math.abs(p.y - RY);
-        const yDest = Math.abs(y2 - RY);
-        const yMid  = Math.abs(((p.y + y2) * 0.5) - RY);
-
-        return (yNow < slotHalf && yDest < slotHalf && yMid < slotHalf);
-    }
-
-    // ------------------------------------------
-    // MAKE BB
-    // ------------------------------------------
     function makeBB(p) {
-        const myGoalX   = (p.team === 0) ? goal1 : goal2;
-        const enemyGoal = (p.team === 0) ? goal2 : goal1;
+        const myGoalX    = (p.team === 0) ? goal1 : goal2; 
+        const enemyGoal  = (p.team === 0) ? goal2 : goal1;
         const forwardDir = (enemyGoal > myGoalX) ? 1 : -1;
-
+        
+        // Zone detection
+        const blueLineX = RX + (110 * forwardDir);
+        const inOffZone = (forwardDir === 1) ? (p.x > blueLineX) : (p.x < blueLineX);
+        const inDefZone = (forwardDir === 1) ? (p.x < RX - 110) : (p.x > RX + 110);
+        
         const carrier = getPlayerById(puck.ownerId);
-
-        const hasPuck      = (puck.ownerId === p.id);
-        const loosePuck    = (puck.ownerId === null);
-        const teamHasPuck  = (carrier && carrier.team === p.team);
-        const oppHasPuck   = (carrier && carrier.team !== p.team);
-
         const distToNet = Math.hypot(enemyGoal - p.x, RY - p.y);
-        const distToOwnNet = Math.hypot(myGoalX - p.x, RY - p.y);
-
-        let pressure = 999;
+        
+        // Teammates
+        const teammates = players.filter(m => 
+            m.team === p.team && 
+            m.id !== p.id && 
+            m.type === "skater"
+        );
+        
+        // Pressure detection
+        let nearestOpp = 999;
+        let oppCount = 0;
         for (const o of players) {
-            if (o.team === p.team || o.type !== "skater") continue;
-            const d = Math.hypot(o.x - p.x, o.y - p.y);
-            if (d < pressure) pressure = d;
+            if (o.team !== p.team) {
+                const d = Math.hypot(p.x - o.x, p.y - o.y);
+                if (d < nearestOpp) nearestOpp = d;
+                if (d < 80) oppCount++;
+            }
         }
-
-        const myDist = Math.hypot(p.x - puck.x, p.y - puck.y);
-        let amIClosest = true;
-        const all = players.filter(m => m.team === p.team && m.type === "skater");
-        for (const m of all) {
-            if (m.id === p.id) continue;
-            const d = Math.hypot(m.x - puck.x, m.y - puck.y);
-            if (d < myDist) { amIClosest = false; break; }
-        }
-
-        all.sort((a, b) => a.id - b.id);
-        const myIndex = all.findIndex(m => m.id === p.id);
-
-        const blueLineX = RX + (BLUE_LINE_OFFSET * forwardDir);
-        const defBlueX  = RX - (BLUE_LINE_OFFSET * forwardDir);
-        const puckInDefZone  = (forwardDir === 1) ? (puck.x < defBlueX) : (puck.x > defBlueX);
-
-        const isDelayedOffside = (offsideState.active && offsideState.team === p.team);
-
-        let mustStayOnside = false;
-        if (typeof offensiveZoneAllowed === "function") {
-            mustStayOnside = !offensiveZoneAllowed(p) && !puckInDefZone;
-        }
-
-        const laneOpen = !isLaneBlocked(p.x, p.y, enemyGoal, RY, p.team);
-
+        
         return {
-            p,
-            real_p: p,
-            role: roleMap(p.role),
-            myGoalX,
-            enemyGoal,
-            forwardDir,
-            carrier,
-            hasPuck,
-            loosePuck,
-            teamHasPuck,
-            oppHasPuck,
-            distToNet,
-            distToOwnNet,
-            pressure,
-            amIClosest,
-            mySkaters: all,
-            myIndex,
-            blueLineX,
-            defBlueX,
-            isDelayedOffside,
-            mustStayOnside,
-            laneOpen,
-
-            carryTarget: null,
-            passTarget: null,
-            passPoint: null,
-            bankTarget: null,
-            bankPoint: null
+            p, role: p.role, forwardDir,
+            myGoalX, enemyGoal, blueLineX,
+            inOffZone, inDefZone, distToNet,
+            teammates, carrier,
+            nearestOpp, oppCount,
+            hasPuck: (puck.ownerId === p.id),
+            mateHasPuck: (carrier && carrier.team === p.team && carrier.id !== p.id),
+            oppHasPuck: (carrier && carrier.team !== p.team),
+            loosePuck: (puck.ownerId === null),
+            isUnderPressure: (nearestOpp < 50),
+            isClustered: (oppCount >= 2)
         };
     }
 
-    // =======================================================
-    // CONDITIONS
-    // =======================================================
+    // ==========================================
+    // ACTIONS
+    // ==========================================
 
-    const condHasPuck     = new ConditionNode(bb => bb.hasPuck);
+    // Smart Chase with Physics Prediction
+    const actChase = (bb) => {
+        const target = getPuckIntercept(bb.p);
+        return { tx: target.x, ty: target.y, action: "none" };
+    };
 
-    // THIS IS THE NEW CORRECT CONDITION:
-    // If our team does NOT have the puck → funnel.
-    const condWeDoNotHavePuck = new ConditionNode(bb => !bb.teamHasPuck);
-
-    const condTeamHasPuck = new ConditionNode(bb => bb.teamHasPuck);
-    const condDelayedOffside = new ConditionNode(bb => bb.isDelayedOffside);
-    const condMustStayOnside = new ConditionNode(bb => bb.mustStayOnside);
-
-    const condOwnSlotDanger = new ConditionNode(bb => {
-        return (bb.distToOwnNet < 180 && Math.abs(bb.p.y - RY) < 100);
-    });
-
-    const condFinisherZone = new ConditionNode(bb => {
-        const close = bb.distToNet < 140;
-        const med   = (bb.distToNet < 210 && bb.laneOpen);
-        const press = (bb.pressure < 90 && bb.distToNet < 230);
-        return close || med || press;
-    });
-
-    const condSafeCarryForward = new ConditionNode(bb => {
-        const p = bb.p;
-        const step = 130 * bb.forwardDir;
-        const tx = p.x + step;
-        if (isLaneBlocked(p.x, p.y, tx, p.y, p.team)) return false;
-        bb.carryTarget = { x: tx, y: p.y };
-        return true;
-    });
-
-    const condHighQualityPass = new ConditionNode(bb => {
-        const p = bb.p;
-        if (typeof p.brainPassCD !== "number") p.brainPassCD = 0;
-        if (p.brainPassCD > 0) { p.brainPassCD--; return false; }
-
-        const opts = findOpenTeammates(p);
-        if (!opts || opts.length === 0) return false;
-
-        let best = null;
-        let bestScore = -999;
-
-        for (const o of opts) {
-            if (isOwnSlotPass(bb, o.leadX, o.leadY)) continue;
-            if (passIntersectsOwnNet(p, o.mate.x, o.mate.y)) continue;
-
-            const prog = (o.mate.x - p.x) * bb.forwardDir;
-            if (prog < 20) continue;
-            const d = Math.hypot(o.mate.x - p.x, o.mate.y - p.y);
-            if (d < 60) continue;
-
-            let score = 0;
-            score += prog * 0.35;
-            score += openSpaceScore(o.leadX, o.leadY, p.team) * 0.8;
-            if (o.futureClear) score += 70;
-            if (isLaneBlocked(p.x, p.y, o.leadX, o.leadY, p.team)) score -= 220;
-
-            if (score > bestScore) {
-                bestScore = score;
-                best = o;
-            }
+    // High-Percentage Shot (more aggressive volume)
+    const actShoot = (bb) => {
+        // Point blank range - ALWAYS shoot (don't skate into goalie!)
+        if (bb.distToNet < 80) {
+            return { tx: bb.enemyGoal, ty: RY, action: "shoot" };
         }
+        
+        // Good scoring position - SHOOT MORE!
+        if (bb.distToNet > 220) return null; // Extended from 200
+        
+        // In offensive zone? Don't be too picky about lanes
+        if (bb.inOffZone && bb.distToNet < 160) {
+            // Take the shot even with some traffic (create rebounds)
+            return { tx: bb.enemyGoal, ty: RY, action: "shoot" };
+        }
+        
+        // Outside the zone - check if lane is clear
+        if (isLaneBlocked(bb.p.x, bb.p.y, bb.enemyGoal, RY, bb.p.team)) return null;
+        
+        return { tx: bb.enemyGoal, ty: RY, action: "shoot" };
+    };
 
-        if (!best || bestScore < 40) return false;
+    // Intelligent Pass Selection (more selective)
+    const actSmartPass = (bb) => {
+        // Don't pass immediately after receiving (reduce ping-pong)
+        if (bb.p.possessionTime < 15) return null;
 
-        bb.passTarget = best.mate;
-        bb.passPoint = { x: best.leadX, y: best.leadY };
-        return true;
-    });
+        const openMates = findOpenTeammates(bb.p);
+        if (openMates.length === 0) return null;
 
-    const condBankPass = new ConditionNode(bb => {
-        const p = bb.p;
-        const opts = findOpenTeammates(p);
-        if (!opts || opts.length === 0) return false;
-        const boardYs = [RY - 230, RY + 230];
-
-        let best = null;
+        let bestTarget = null;
         let bestScore = -999;
 
-        for (const o of opts) {
-            const prog = (o.mate.x - p.x) * bb.forwardDir;
-            if (prog < 10) continue;
-
-            for (const by of boardYs) {
-                let bx = (p.x + o.mate.x) * 0.5;
-                bx = Math.min(Math.max(bx,140),860);
-
-                if (isLaneBlocked(p.x, p.y, bx, by, p.team)) continue;
-                if (passIntersectsOwnNet(p, bx, by)) continue;
-                if (isOwnSlotPass(bb, bx, by)) continue;
-                if (isLaneBlocked(bx, by, o.mate.x, o.mate.y, p.team)) continue;
-
-                let score = 0;
-                score += prog * 0.4;
-                score += openSpaceScore(o.mate.x, o.mate.y, p.team) * 0.7;
-
-                const dist =
-                    Math.hypot(bx - p.x, by - p.y) +
-                    Math.hypot(o.mate.x - bx, o.mate.y - by);
-                score -= dist * 0.08;
-
-                if (score > bestScore) {
-                    bestScore = score;
-                    best = {mate:o.mate, bx, by};
+        for (const option of openMates) {
+            const mate = option.mate;
+            
+            // Skip if lane blocked (current OR future position)
+            if (!option.currentClear && !option.futureClear) continue;
+            
+            let score = 0;
+            
+            // 1. Forward Progress (highest priority)
+            const myProgress = (bb.p.x - bb.myGoalX) * bb.forwardDir;
+            const mateProgress = (mate.x - bb.myGoalX) * bb.forwardDir;
+            const progressGain = mateProgress - myProgress;
+            
+            // NEW: Only pass if significant forward progress (>30px)
+            if (progressGain < 30 && !bb.isClustered) continue;
+            
+            score += progressGain * 2.0;
+            
+            // 2. Mate's Openness (space to operate)
+            let mateSpace = 0;
+            for (const o of players) {
+                if (o.team !== bb.p.team) {
+                    const d = Math.hypot(mate.x - o.x, mate.y - o.y);
+                    if (d < 100) mateSpace -= (100 - d);
                 }
             }
+            score += mateSpace * 0.5;
+            
+            // 3. Scoring Position Bonus
+            const mateDistToNet = Math.hypot(mate.x - bb.enemyGoal, mate.y - RY);
+            if (mateDistToNet < 130) score += 80; // Increased bonus for slot position
+            
+            // 4. Panic Pass (if under heavy pressure, any safe pass is good)
+            if (bb.isClustered && option.futureClear) {
+                score += 100;
+            }
+            
+            if (score > bestScore) {
+                bestScore = score;
+                bestTarget = option;
+            }
         }
 
-        if (!best || bestScore < 60) return false;
+        if (bestTarget) {
+            // STATS: Mark this player as intended recipient
+            puck.passTargetId = bestTarget.mate.id;
+            
+            return { 
+                tx: bestTarget.leadX, 
+                ty: bestTarget.leadY, 
+                action: "pass", 
+                target: bestTarget.mate 
+            };
+        }
 
-        bb.bankTarget = best.mate;
-        bb.bankPoint = { x: best.bx, y: best.by };
-        return true;
-    });
+        return null;
+    };
 
-    // =======================================================
-    // ACTIONS
-    // =======================================================
+    // Possession Carry (patient advance)
+    const actCarry = (bb) => {
+        // Find the safest lane with space
+        const lanes = [
+            { x: bb.enemyGoal, y: RY - 70 },  // Top lane
+            { x: bb.enemyGoal, y: RY },       // Center lane
+            { x: bb.enemyGoal, y: RY + 70 }   // Bottom lane
+        ];
+        
+        let bestLane = lanes[1];
+        let bestScore = -999;
+        
+        for (const lane of lanes) {
+            let score = 0;
+            
+            // Check enemy density in this lane
+            for (const o of players) {
+                if (o.team !== bb.p.team) {
+                    const d = pointLineDistance(bb.p.x, bb.p.y, lane.x, lane.y, o.x, o.y);
+                    score += d; // More distance = better
+                }
+            }
+            
+            if (score > bestScore) {
+                bestScore = score;
+                bestLane = lane;
+            }
+        }
+        
+        return { tx: bestLane.x, ty: bestLane.y, action: "none" };
+    };
 
-    const actTagUp = new ActionNode(bb => ({
-        tx: bb.blueLineX - (bb.forwardDir * 40),
-        ty: RY, action: "none"
-    }));
-
-    const actHoverBlue = new ActionNode(bb => ({
-        tx: bb.blueLineX - (bb.forwardDir * 25),
-        ty: clamp(puck.y,RY-100,RY+100),
-        action:"none"
-    }));
-
-    const actShoot = new ActionNode(bb => ({
-        tx: bb.enemyGoal, ty: RY, action:"shoot"
-    }));
-
-    const actCarryForward = new ActionNode(bb => ({
-        tx: bb.carryTarget.x, ty: bb.carryTarget.y, action:"none"
-    }));
-
-    const actCarryLane = new ActionNode(bb => {
-        const lane = pickCarryLane(bb.p);
-        return { tx: lane.x, ty: lane.y, action:"none" };
-    });
-
-    const actExecutePass = new ActionNode(bb => {
-        const p = bb.p;
-        p.brainPassCD = 12;
-        return {
-            tx: bb.passPoint.x, ty: bb.passPoint.y,
-            action:"pass", target: bb.passTarget
+    // Support Position (Triangle Formation)
+    const actSupport = (bb) => {
+        if (!bb.carrier) return actChase(bb);
+        
+        // Position based on role
+        const carrierToGoal = bb.enemyGoal - bb.carrier.x;
+        const supportDist = 70;
+        
+        let offsetX = 0, offsetY = 0;
+        
+        if (bb.role === "C") {
+            // Center: Trail behind for back pass
+            offsetX = -bb.forwardDir * supportDist;
+            offsetY = 0;
+        } else if (bb.role === "RW" || bb.role === "LW") {
+            // Wings: Flank wide for cross-ice pass
+            offsetX = bb.forwardDir * 40;
+            offsetY = (bb.role === "RW") ? 80 : -80;
+        } else {
+            // Defense: Stay back as safety valve
+            offsetX = -bb.forwardDir * 100;
+            offsetY = 0;
+        }
+        
+        const tx = bb.carrier.x + offsetX;
+        const ty = bb.carrier.y + offsetY;
+        
+        // Clamp to rink
+        return { 
+            tx: Math.max(120, Math.min(880, tx)), 
+            ty: Math.max(170, Math.min(430, ty)), 
+            action: "none" 
         };
-    });
+    };
 
-    const actExecuteBankPass = new ActionNode(bb => {
-        const p = bb.p;
-        p.brainPassCD = 16;
-        return {
-            tx: bb.bankPoint.x, ty: bb.bankPoint.y,
-            action:"pass", target: bb.bankTarget
-        };
-    });
-
-    const actWideSupport = new ActionNode(bb => {
-        const carrier = bb.carrier;
-        if (!carrier) return {tx:puck.x, ty:puck.y, action:"none"};
-
-        const laneX = carrier.x + bb.forwardDir * 80;
-        const ty = (bb.myIndex % 2 === 1) ? (RY -150) : (RY +150);
-
-        return { tx: laneX, ty, action:"none" };
-    });
-
-    const actInterceptLoose = new ActionNode(bb => {
-        if (typeof getPuckIntercept === "function") {
-            const t = getPuckIntercept(bb.p);
-            return { tx: t.x, ty: t.y, action:"none" };
+    // Defensive Positioning (aggressive in our zone)
+    const actDefend = (bb) => {
+        if (!bb.carrier) return actChase(bb);
+        
+        const carrierDist = Math.hypot(bb.carrier.x - bb.p.x, bb.carrier.y - bb.p.y);
+        
+        // CRITICAL: If opponent is near our crease, HIT THEM!
+        const distCarrierToOurNet = Math.hypot(bb.carrier.x - bb.myGoalX, bb.carrier.y - RY);
+        
+        if (distCarrierToOurNet < 150) {
+            // Close enough to hit - charge directly at them
+            if (carrierDist < 100) {
+                // Aim slightly ahead to intercept their path
+                const leadX = bb.carrier.x + bb.carrier.vx * 10;
+                const leadY = bb.carrier.y + bb.carrier.vy * 10;
+                return { tx: leadX, ty: leadY, action: "none" };
+            }
         }
-        return { tx: puck.x, ty:puck.y, action:"none" };
-    });
+        
+        // Standard gap control - stay between carrier and our net
+        const gapX = (bb.carrier.x + bb.myGoalX) / 2;
+        const gapY = (bb.carrier.y + RY) / 2;
+        
+        // Don't chase too deep - maintain defensive structure
+        const maxChase = bb.myGoalX + (bb.forwardDir * 200);
+        const clampedX = (bb.forwardDir === 1) 
+            ? Math.min(gapX, maxChase) 
+            : Math.max(gapX, maxChase);
+        
+        return { tx: clampedX, ty: gapY, action: "none" };
+    };
 
-    // ---- FUNNEL DEFENSE (deep)
-    const actFunnelDefence = new ActionNode(bb => {
-        const idx = bb.myIndex;
-
-        const anchorX = bb.myGoalX + bb.forwardDir * 35;
-        const anchorY = RY;
-
-        const wingX = bb.myGoalX + bb.forwardDir * 70;
-        const topY = RY - 60;
-        const botY = RY + 60;
-
-        if (idx === 0) {
-            return { tx: anchorX, ty: anchorY, action:"none" };
-        }
-        if (idx === 1) {
-            return { tx: wingX, ty: topY, action:"none" };
-        }
-        if (idx === 2) {
-            return { tx: wingX, ty: botY, action:"none" };
-        }
-
-        return { tx: bb.myGoalX + bb.forwardDir * 50,
-                 ty: (idx%2===0?RY-30:RY+30),
-                 action:"none" };
-    });
-
-    const actSlotClearSideways = new ActionNode(bb => {
-        const p = bb.p;
-        const dirY = (p.y < RY) ? -1 : 1;
-        return {
-            tx: p.x + bb.forwardDir * 30,
-            ty: RY + dirY * 220,
-            action:"none"
-        };
-    });
-
-    // =======================================================
-    // WITH PUCK TREE
-    // =======================================================
-
-    const TREE_WITH_PUCK = new SelectorNode([
-        new SequenceNode([ condOwnSlotDanger, actSlotClearSideways ]),
-        new SequenceNode([ condFinisherZone, actShoot ]),
-        new SequenceNode([ condSafeCarryForward, actCarryForward ]),
-        new SequenceNode([ condHighQualityPass, actExecutePass ]),
-        new SequenceNode([ condBankPass, actExecuteBankPass ]),
-        actCarryLane
-    ]);
-
-    // =======================================================
-    // ROLE TREES (UPDATED WITH condWeDoNotHavePuck)
-    // =======================================================
-
-    // ATTACKER
-    const TREE_ATTACKER = new SelectorNode([
-        new SequenceNode([ condDelayedOffside, actTagUp ]),
-        new SequenceNode([ condMustStayOnside, actHoverBlue ]),
-        new SequenceNode([ condHasPuck, TREE_WITH_PUCK ]),
-
-        // *** NEW CORRECT BEHAVIOR ***
-        new SequenceNode([ condWeDoNotHavePuck, actFunnelDefence ]),
-
-        new SequenceNode([ condTeamHasPuck, actWideSupport ]),
-        actHoverBlue
-    ]);
-
-    // SUPPORT
-    const TREE_SUPPORT = new SelectorNode([
-        new SequenceNode([ condDelayedOffside, actTagUp ]),
-        new SequenceNode([ condMustStayOnside, actHoverBlue ]),
-        new SequenceNode([ condHasPuck, TREE_WITH_PUCK ]),
-
-        // *** NEW CORRECT BEHAVIOR ***
-        new SequenceNode([ condWeDoNotHavePuck, actFunnelDefence ]),
-
-        new SequenceNode([ condTeamHasPuck, actWideSupport ]),
-        actHoverBlue
-    ]);
-
-    // DEFENDER
-    const TREE_DEFENDER = new SelectorNode([
-        new SequenceNode([ condDelayedOffside, actTagUp ]),
-        new SequenceNode([ condMustStayOnside, actHoverBlue ]),
-        new SequenceNode([ condHasPuck, TREE_WITH_PUCK ]),
-
-        // *** NEW CORRECT BEHAVIOR ***
-        new SequenceNode([ condWeDoNotHavePuck, actFunnelDefence ]),
-
-        new SequenceNode([ condTeamHasPuck, actWideSupport ]),
-        actHoverBlue
-    ]);
-
-    // =======================================================
-    // THINK
-    // =======================================================
+    // ==========================================
+    // MAIN BRAIN
+    // ==========================================
     function think(p) {
         const bb = makeBB(p);
 
-        if (bb.role === "P") return TREE_ATTACKER.tick(bb);
-        if (bb.role === "S") return TREE_SUPPORT.tick(bb);
-        return TREE_DEFENDER.tick(bb);
+        // ============================================
+        // OFFENSE: I have the puck
+        // ============================================
+        if (bb.hasPuck) {
+            
+            // 1. CRITICAL: Point blank shot (prevent goalie collision!)
+            if (bb.distToNet < 80) {
+                return { tx: bb.enemyGoal, ty: RY, action: "shoot" };
+            }
+            
+            // 2. DEFENSIVE ZONE EXIT: Clear it ASAP!
+            if (bb.inDefZone) {
+                // Look for a quick outlet pass up ice
+                const pass = actSmartPass(bb);
+                if (pass) return pass;
+                
+                // No pass? Chip it out hard along the boards
+                const boardSide = (bb.p.y < RY) ? RY - 120 : RY + 120;
+                return { tx: bb.enemyGoal, ty: boardSide, action: "shoot" }; // Hard clear
+            }
+            
+            // 3. Emergency: Under heavy pressure? Pass immediately!
+            if (bb.isClustered) {
+                const pass = actSmartPass(bb);
+                if (pass) return pass;
+            }
+            
+            // 4. IN OFFENSIVE ZONE: Shoot first, ask questions later
+            if (bb.inOffZone) {
+                const shoot = actShoot(bb);
+                if (shoot) return shoot;
+                
+                // Only pass if teammate is in PRIME scoring position
+                const pass = actSmartPass(bb);
+                if (pass && pass.target) {
+                    const targetDist = Math.hypot(pass.target.x - bb.enemyGoal, pass.target.y - RY);
+                    if (targetDist < 100) return pass; // Only pass to slot
+                }
+                
+                // Otherwise drive net
+                return actCarry(bb);
+            }
+            
+            // 5. NEUTRAL ZONE: Look for good outlet pass
+            const pass = actSmartPass(bb);
+            if (pass) return pass;
+            
+            // 6. Carry puck forward (patient possession)
+            return actCarry(bb);
+        }
+
+        // ============================================
+        // SUPPORT: Teammate has puck
+        // ============================================
+        if (bb.mateHasPuck) {
+            return actSupport(bb);
+        }
+
+        // ============================================
+        // DEFENSE: Opponent has puck
+        // ============================================
+        if (bb.oppHasPuck) {
+            return actDefend(bb);
+        }
+
+        // ============================================
+        // LOOSE PUCK: Race for it
+        // ============================================
+        return actChase(bb);
     }
 
-
-
-
-
+    // ==========================================
+    // REGISTER
+    // ==========================================
     if (typeof registerStrategy === "function") {
         registerStrategy(
             STRATEGY_ID,
@@ -420,7 +350,7 @@
             "Canadiens",
             "MTL",
             think,
-            { main: "#af1e2d", secondary: "#192168" }
+            { main: "#af1e2d", secondary: "#192168" } // Red - Blue
         );
     }
 

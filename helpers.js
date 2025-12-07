@@ -5,6 +5,8 @@
 
 
 
+
+
 // =========================================================
 // BEHAVIOUR TREE CORE ENGINE (Shared by Team0 + Team1)
 // =========================================================
@@ -109,6 +111,184 @@ function getPuckCarrier() {
 }
 
 // --- 3. TACTICAL HELPERS (Calculations) ---
+
+
+
+
+
+// =========================================================
+// OFF-BALL MOVEMENT: CRASH THE BACKDOOR
+// =========================================================
+
+const BACKDOOR_DEPTH = 60;  // Distance from Goal Line
+const BACKDOOR_WIDTH = 75;   // Distance from Center Ice
+
+// =========================================================
+// OFF-BALL MOVEMENT: CRASH THE BACKDOOR (Center-Origin Math)
+// =========================================================
+function getBackdoorPosition(p) {
+    // 1. CONVERT TO RELATIVE COORDINATES (Center = 0,0)
+    // Canvas X (0 to 1000) -> Relative X (-500 to 500)
+    // Canvas Y (0 to 600)  -> Relative Y (-300 to 300)
+    const puckRelY = puck.y - RY;
+    const goalAbsX = (p.team === 0 ? goal2 : goal1);
+    const goalRelX = goalAbsX - RX; // e.g. +325 or -325
+
+    // 2. DETERMINE DIRECTION
+    // Sign is 1 if goal is Right, -1 if goal is Left
+    const dir = Math.sign(goalRelX); 
+
+    // 3. CALCULATE RELATIVE TARGET
+    // Depth: Back off from the goal line by specific depth
+    // If goal is +325, target is +325 - 120 = +205
+    // If goal is -325, target is -325 - (-120) = -205
+    const targetRelX = goalRelX - (dir * BACKDOOR_DEPTH);
+
+    // Width: Go to opposite side of puck
+    // If puck is Top (-), go Bottom (+). If puck is Bottom (+), go Top (-).
+    const targetRelY = (puckRelY < 0) ? BACKDOOR_WIDTH : -BACKDOOR_WIDTH;
+
+    // 4. CONVERT BACK TO ABSOLUTE (Canvas)
+    return { 
+        tx: targetRelX + RX, 
+        ty: targetRelY + RY, 
+        action: "none" 
+    };
+}
+
+
+
+
+
+
+
+
+// =========================================================
+// ONE-TIMER / BACKDOOR LOGIC
+// =========================================================
+function findBackdoorTarget(p) {
+    const enemyGoalX = (p.team === 0 ? goal2 : goal1);
+    const enemyGoalY = RY; // Center of net
+
+    for (const mate of players) {
+        // 1. Basic Checks (Teammate, Skater, Not Me)
+        if (mate.team !== p.team || mate.id === p.id || mate.type !== "skater") continue;
+
+        // 2. RANGE CHECK: Must be "On the Doorstep"
+        // We look for players within 130px of the goal (The "Danger Zone")
+        const distToGoal = Math.hypot(mate.x - enemyGoalX, mate.y - enemyGoalY);
+        if (distToGoal > 140) continue; 
+
+        // 3. COVERAGE CHECK: Is he open?
+        // If an enemy is within 50px of him, he's covered. Don't force it.
+        let isCovered = false;
+        for (const opp of players) {
+            if (opp.team === p.team) continue;
+            if (Math.hypot(opp.x - mate.x, opp.y - mate.y) < 50) {
+                isCovered = true; 
+                break;
+            }
+        }
+        if (isCovered) continue;
+
+        // 4. LANE CHECK: Can I actually get the puck to him?
+        if (isLaneBlocked(p.x, p.y, mate.x, mate.y, p.team)) continue;
+
+        // Found a perfect target!
+        return mate;
+    }
+    return null;
+}
+
+
+
+
+// =========================================================
+// REGROUP LOGIC: Check for Offside Teammates
+// =========================================================
+function checkTeammatesOffside(p) {
+    const forwardDir = (p.team === 0 ? 1 : -1);
+    
+    // Define the Offensive Blue Line
+    // RX (500) + Direction * 110 = 610 (Right) or 390 (Left)
+    const blueLineX = RX + (forwardDir * 110); 
+    
+    for (const mate of players) {
+        if (mate.team !== p.team || mate.id === p.id || mate.type !== "skater") continue;
+        
+        // Check if teammate is "Deep" in the zone relative to the blue line
+        // We add a 10px buffer so they have to fully clear it
+        if ((mate.x - blueLineX) * forwardDir > 5) {
+            return true; // STOP! Someone is still in there.
+        }
+    }
+    return false;
+}
+
+
+
+
+
+
+
+
+
+
+
+// =========================================================
+// PUCK CLEARING: AWAY FROM NET FRONT (Safety Check Added)
+// =========================================================
+function clearPuckDefensive(p) {
+    const forwardDir = (p.team === 0 ? goal2 : goal1) > p.x ? 1 : -1;
+    const clearDistance = 200; // Fixed distance for the clear
+    
+    // 1. Calculate base X target (400 units forward)
+    const targetX = p.x + forwardDir * clearDistance; 
+
+    // 2. Define Candidate Y Targets (Wide open areas near side boards)
+    const Y_WIDE_HIGH = RY - 150; 
+    const Y_WIDE_LOW  = RY + 150;
+    
+    let scoreHigh = 0;
+    let scoreLow = 0;
+
+    // 3. Score the two lanes against opponents
+    for (const o of players) {
+        // Skip teammates and goalies
+        if (o.team === p.team || o.type === "goalie") continue; 
+        
+        // --- High Lane Check (p.x, p.y) to (targetX, Y_WIDE_HIGH) ---
+        // Score is penalized if opponent is too close to the path
+        const distToHighLane = pointLineDistance(p.x, p.y, targetX, Y_WIDE_HIGH, o.x, o.y);
+        if (distToHighLane < 40) { // Check if opponent is within a 40px wide corridor
+            scoreHigh -= (40 - distToHighLane); // Higher penalty for closer opponents
+        }
+
+        // --- Low Lane Check (p.x, p.y) to (targetX, Y_WIDE_LOW) ---
+        const distToLowLane = pointLineDistance(p.x, p.y, targetX, Y_WIDE_LOW, o.x, o.y);
+        if (distToLowLane < 40) {
+            scoreLow -= (40 - distToLowLane);
+        }
+    }
+    
+    // 4. Final Selection Logic
+    let finalY;
+
+    if (scoreHigh > scoreLow) {
+        finalY = Y_WIDE_HIGH;
+    } else if (scoreLow > scoreHigh) {
+        finalY = Y_WIDE_LOW;
+    } else {
+        // TIE BREAKER: If both are equally safe/unsafe, aim for the side opposite the player's current Y position (default widest clear)
+        finalY = (p.y < RY) ? Y_WIDE_LOW : Y_WIDE_HIGH;
+    }
+
+    return { tx: targetX, ty: finalY, action: "shoot" };
+}
+
+
+
+
 
 
 

@@ -1,14 +1,14 @@
 // ==========================================
-// STRATEGY: HAND CRAFTED (BT9) - UPDATED v7
+// STRATEGY: HAND CRAFTED (BT9) - UPDATED v8
 // ==========================================
-// - Loose Pucks: Simple Linear Lead Aiming (No Loop)
+// - Loose Pucks: Physics-Aware Iterative Solver (Fixes Jitter)
 // - D-Zone: Priority Pass -> Carry -> Safety Pass
 // ==========================================
 
 (function() {
 
     const STRATEGY_ID   = "BT9_SmartPassing";
-    const STRATEGY_NAME = "Hand Crafted v7"; 
+    const STRATEGY_NAME = "Hand Crafted v8"; 
 
     const T1 = {
         shot_range: 160, 
@@ -24,29 +24,64 @@
     }
 
     // ==========================================
-    // NEW HELPER: SIMPLE LEAD AIMING
+    // NEW HELPER: PHYSICS-AWARE INTERCEPT
     // ==========================================
     function predictPuckIntersection(p) {
-        // 1. Distance to puck
-        const dx = puck.x - p.x;
-        const dy = puck.y - p.y;
-        const dist = Math.hypot(dx, dy);
+        const pSpeed = Math.hypot(puck.vx, puck.vy);
+        
+        // 1. STATIONARY PUCK FIX (The "Drive-Through")
+        // If the puck is barely moving, aim 15px THROUGH it.
+        // This forces the skater's hitbox to collide with the puck's hitbox.
+        if (pSpeed < 1.5) {
+            const dx = puck.x - p.x;
+            const dy = puck.y - p.y;
+            const angle = Math.atan2(dy, dx);
+            return { 
+                x: puck.x + Math.cos(angle) * 15, 
+                y: puck.y + Math.sin(angle) * 15 
+            };
+        }
 
-        // 2. Estimate frames to reach (Player Max Speed ~2.3)
-        // If we are 100px away, it takes ~43 frames.
-        let framesAhead = dist / 2.3;
+        // 2. MOVING PUCK: EXACT PHYSICS SIMULATION
+        // We simulate the puck moving + slowing down to find the
+        // exact frame where the player can catch it.
+        
+        let tX = puck.x;
+        let tY = puck.y;
+        let tVX = puck.vx;
+        let tVY = puck.vy;
+        
+        const mySpeed = 2.3; // Skater max speed approx
+        const friction = 0.993; // Matches physics engine
 
-        // 3. Cap the look-ahead (Don't predict 3 seconds into the future)
-        // 30 frames = 0.5 seconds. Good balance of reaction vs prediction.
-        if (framesAhead > 30) framesAhead = 30; 
+        // Look up to 60 frames ahead (1 second)
+        for(let frames = 1; frames <= 60; frames++) {
+            // A. Simulate Puck Physics for 1 frame
+            tX += tVX;
+            tY += tVY;
+            tVX *= friction;
+            tVY *= friction;
 
-        // 4. Calculate Target
-        // "Friction Factor" (0.7): The puck slows down, so linear prediction
-        // overshoots. We reduce the vector slightly to compensate.
-        const futureX = puck.x + (puck.vx * framesAhead * 0.7);
-        const futureY = puck.y + (puck.vy * framesAhead * 0.7);
+            // B. Can I get there by this frame?
+            const dist = Math.hypot(tX - p.x, tY - p.y);
+            const possibleDist = frames * mySpeed;
 
-        return { x: futureX, y: futureY };
+            if (possibleDist >= dist) {
+                // C. INTERCEPT FOUND!
+                // Clamp to rink walls so we don't try to skate into the stands
+                return {
+                    x: Math.max(120, Math.min(880, tX)), 
+                    y: Math.max(170, Math.min(430, tY))
+                };
+            }
+        }
+
+        // D. FALLBACK (Too fast to catch in 1 sec)
+        // Just go to where it will be in 1 second.
+        return {
+            x: Math.max(120, Math.min(880, tX)),
+            y: Math.max(170, Math.min(430, tY))
+        };
     }
 
     // --- BLACKBOARD ---
@@ -66,7 +101,7 @@
             return getOldRole(m.role) === "P";
         });
 
-        // Calculate simple intercept once per frame
+        // Calculate intercept once per frame
         const intercept = predictPuckIntersection(p);
 
         return {

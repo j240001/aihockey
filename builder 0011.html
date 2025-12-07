@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>BRAIN BUILDER V 0010 (Complete)</title>
+<style>
+    :root { --bg: #1e1e2e; --panel: #252535; --node: #333344; --accent: #7aa2f7; --border: #444; }
+    body { background: var(--bg); color: #c0caf5; font-family: 'Segoe UI', monospace; display: flex; gap: 10px; padding: 10px; height: 98vh; overflow: hidden; font-size: 12px; }
+
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #111; }
+    ::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+
+    .panel { background: var(--panel); padding: 10px; border-radius: 4px; width: 240px; display: flex; flex-direction: column; border: 1px solid var(--border); }
+    .panel h3 { margin: 0 0 10px 0; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 5px; font-size: 14px; }
+
+    .workspace { flex: 1; background: #16161e; border: 1px solid var(--border); border-radius: 4px; padding: 10px; overflow-y: auto; display: flex; gap: 10px; }
+    .tree-column { flex: 1; min-width: 250px; display: flex; flex-direction: column; border-right: 1px dashed #333; padding-right: 5px; }
+    .tree-column:last-child { border-right: none; }
+    .tree-column h4 { text-align: center; color: #7dcfff; background: #222; padding: 5px; margin: 0 0 5px 0; border-radius: 3px; font-size: 13px; }
+
+    .tree-block { 
+        padding-left: 12px; 
+        min-height: 10px; 
+        border-left: 1px solid #555; 
+        margin-left: 4px; 
+        
+        /* ADD THIS LINE: */
+        padding-bottom: 10px; /* Creates a clickable gap at the bottom */
+    }
+
+
+    .btn-move {
+        cursor: pointer;
+        color: #666;
+        font-size: 10px;
+        padding: 2px 4px;
+        border-radius: 3px;
+        background: rgba(0,0,0,0.2);
+        transition: all 0.1s;
+    }
+    .btn-move:hover {
+        color: #fff;
+        background: var(--accent);
+    }
+
+
+    .node { 
+        background: var(--node); 
+        padding: 4px 8px; 
+        border-radius: 3px; 
+        margin: 2px 0; 
+        display: flex; 
+        align-items: center; 
+        justify-content: space-between;
+        cursor: pointer; 
+        border: 1px solid #444; 
+        font-size: 11px; 
+        box-shadow: 1px 1px 3px rgba(0,0,0,0.2); 
+        transition: all 0.1s;
+        flex-wrap: wrap; 
+    }
+    .node:hover { border-color: var(--accent); background: #3b3b4d; }
+    .node span.del { color: #f7768e; font-weight: bold; cursor: pointer; padding: 0 6px; font-size: 14px; }
+    .node span.label { font-weight: 600; pointer-events: none; }
+
+    .node[data-cat="struct"] { border-left: 3px solid #bb9af7; }
+    .node[data-cat="cond"]   { border-left: 3px solid #e0af68; }
+    .node[data-cat="act"]    { border-left: 3px solid #9ece6a; }
+
+    button.btn { background: #3b4261; color: white; border: none; padding: 6px; margin-bottom: 3px; width: 100%; text-align: left; cursor: pointer; border-radius: 3px; font-size: 11px; }
+    button.btn:hover { background: var(--accent); color:#111; }
+
+    #inspectorFields label { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+    #inspectorFields input { background: #111; border: 1px solid #555; color: #fff; width: 60px; padding: 2px 5px; border-radius: 3px; text-align: right; }
+
+    .export-area { width: 100%; flex: 1; background: #111; color: #73daca; border: 1px solid var(--border); padding: 10px; font-family: monospace; resize: none; font-size: 10px; border-radius: 4px; margin-top: 5px; }
+    
+    .active-drop { background: rgba(122,162,247,0.15); border-color: var(--accent); }
+</style>
+</head>
+<body>
+
+<div class="panel">
+    <h3>Node Palette</h3>
+    <div style="overflow-y:auto; flex:1;">
+        <p style="color:#666; font-size:10px; margin-bottom:4px;">FLOW CONTROL</p>
+        <button class="btn" onclick="addNode('Selector','struct')">Selector (?)</button>
+        <button class="btn" onclick="addNode('Sequence','struct')">Sequence (->)</button>
+
+        <p style="color:#666; font-size:10px; margin-top:10px;">CONDITIONS</p>
+        <button class="btn" onclick="addNode('condHasPuck','cond')">Has Puck</button>
+        <button class="btn" onclick="addNode('condLoosePuck','cond')">Loose Puck</button>
+        <button class="btn" onclick="addNode('condOppHasPuck','cond')">Opponent Has Puck</button>
+        <button class="btn" onclick="addNode('condTeamHasPuck','cond')">Teammate Has Puck</button>
+        <button class="btn" onclick="addNode('condPuckInDefZone','cond')">Puck In Def Zone</button>
+        <button class="btn" onclick="addNode('condPuckInNeuZone','cond')">Puck In Neu Zone</button>
+        <button class="btn" onclick="addNode('condPuckInOffZone','cond')">Puck In Off Zone</button>
+        <button class="btn" onclick="addNode('condInShotRange','cond')">In Shot Range</button>
+        <button class="btn" onclick="addNode('condForwardLaneClear','cond')">Forward Lane Clear</button>
+        <button class="btn" onclick="addNode('condHasBreakoutPass','cond')">Has Breakout Pass</button>
+        <button class="btn" onclick="addNode('condAmIClosest','cond')">Am I Closest?</button>
+        <button class="btn" onclick="addNode('condHasBackdoor','cond')">Has Backdoor Pass</button>
+        <button class="btn" onclick="addNode('condTeammatesOffside','cond')">Teammates Offside?</button>
+
+
+
+        <p style="color:#666; font-size:10px; margin-top:10px;">ACTIONS</p>
+        <button class="btn" onclick="addNode('actShoot','act')">Shoot</button>
+        <button class="btn" onclick="addNode('actDriveNet','act')">Drive Net</button>
+        <button class="btn" onclick="addNode('actSmartIntercept','act')">Smart Intercept</button>
+        <button class="btn" onclick="addNode('actHoverBlueLine','act')">Hover Blue Line</button>
+        <button class="btn" onclick="addNode('actExecuteCarry','act')">Execute Carry</button>
+        <button class="btn" onclick="addNode('actExecutePass','act')">Execute Pass</button>
+        <button class="btn" onclick="addNode('actTagUp_T1','act')">Tag Up</button>
+        <button class="btn" onclick="addNode('actIdle','act')">Idle / Stop</button>
+        <button class="btn" onclick="addNode('actChill','act')">Chill (Do Nothing)</button>
+        <button class="btn" onclick="addNode('actDefendHome','act')">Defend Home</button>
+        <button class="btn" onclick="addNode('actAggressiveGap','act')">Aggressive Gap (Helper)</button>
+        <button class="btn" onclick="addNode('actClearPuck','act')">Clear Puck (Def)</button>
+        <button class="btn" onclick="addNode('actGoBackdoor','act')">Go Backdoor</button>
+        <button class="btn" onclick="addNode('actRegroup','act')">Regroup (Center Ice)</button>
+
+        <p style="color:#666; font-size:10px; margin-top:10px;">SMART ACTIONS (Param)</p>
+        <button class="btn" onclick="addNode('actSupportPosition','act')">Support Position</button>
+        <button class="btn" onclick="addNode('actSafetyPosition','act')">Safety Position</button>
+    </div>
+</div>
+
+<div class="workspace" id="workspace">
+    <div class="tree-column">
+        <h4>Attacker (C)</h4>
+        <div id="Aroot" class="tree-block main-root"></div>
+    </div>
+    <div class="tree-column">
+        <h4>Winger (Other)</h4>
+        <div id="Wroot" class="tree-block main-root"></div>
+    </div>
+    <div class="tree-column">
+        <h4>Defender (A/D)</h4>
+        <div id="Droot" class="tree-block main-root"></div>
+    </div>
+</div>
+
+<div class="panel">
+    <div style="flex: 0 0 auto; margin-bottom: 20px; border-bottom: 1px solid #444; padding-bottom: 10px;">
+        <h3>Inspector</h3>
+        <div id="inspectorFields" style="font-size:11px;color:#aaa;">
+            <i>Select a node to edit.</i>
+        </div>
+    </div>
+
+    <h3>Output</h3>
+    <div style="display:flex; gap:5px; margin-bottom:5px;">
+        <input type="text" id="fileName" placeholder="Filename" value="strategy" 
+               style="background:#111; border:1px solid #555; color:#73daca; width:80px; padding:0 5px; border-radius:3px;">
+
+        <button class="btn" onclick="saveLayout()" style="background:#41a6b5; font-weight:bold;">💾 SAVE</button>
+        <button class="btn" onclick="triggerLoad()" style="background:#9d7cd8; font-weight:bold;">📂 LOAD</button>
+        <input type="file" id="fileInput" style="display:none" onchange="loadLayout(this)">
+    </div>
+    <button class="btn" style="background:var(--accent); color:#111; font-weight:bold;" onclick="exportBT()">GENERATE CODE</button>
+    <textarea id="output" class="export-area"></textarea>
+</div>
+
+<script>
+let selectedBlockId = null;
+let idCounter = 0;
+
+document.getElementById('workspace').addEventListener('click', e => {
+    if (!e.target.closest('.node')) {
+        document.querySelectorAll('.tree-block').forEach(b => b.style.borderColor = '');
+        const block = e.target.closest('.tree-block');
+        if (block) {
+            block.style.borderColor = '#7aa2f7';
+            selectedBlockId = block.id;
+        }
+    }
+});
+
+function addNode(type, cat) {
+    if (!selectedBlockId) { alert("Click inside a column (Attacker, Winger, Defender) first to select where to add the node."); return; }
+    const container = document.getElementById(selectedBlockId);
+
+    const div = document.createElement('div');
+    div.className = 'node';
+    div.dataset.type = type;
+    div.dataset.cat = cat;
+    div.draggable = true;
+
+    const displayName = type.replace(/([A-Z])/g,' $1').trim().replace('act ','').replace('cond ','');
+    
+    // FIXED: Uses 'closest(.node)' to ensure the whole node is deleted, not just the buttons
+    let innerHTML = `
+        <span class="label">${displayName}</span> 
+        <div style="margin-left:auto; display:flex; gap:5px;">
+            <span class="btn-move" onclick="moveUp(this)" title="Move Up">▲</span>
+            <span class="btn-move" onclick="moveDown(this)" title="Move Down">▼</span>
+            <span class="del" onclick="event.stopPropagation(); this.closest('.node').remove()">❌</span>
+        </div>
+    `;
+
+    if (cat === 'struct') {
+        const blockId = 'blk_' + (++idCounter);
+        innerHTML += `<div class="tree-block" id="${blockId}"></div>`;
+        setTimeout(() => {
+            document.querySelectorAll('.tree-block').forEach(b => b.style.borderColor = '');
+            document.getElementById(blockId).style.borderColor = '#7aa2f7';
+            selectedBlockId = blockId;
+        }, 50);
+    }
+
+    // Default Parameters
+    if (type === "actSupportPosition") {
+        div.dataset.offsetx = "-40";
+        div.dataset.offsety = "60";
+    }
+    if (type === "actSafetyPosition") {
+        div.dataset.depth = "120";
+    }
+
+    div.innerHTML = innerHTML;
+    div.addEventListener('click', e => { e.stopPropagation(); selectNode(div); });
+    container.appendChild(div);
+}
+
+
+
+// ==========================================
+// DOM REORDER LOGIC (Move Up / Down)
+// ==========================================
+function moveUp(btn) {
+    event.stopPropagation();
+    const node = btn.closest('.node');
+    const prev = node.previousElementSibling;
+    if (prev) {
+        node.parentNode.insertBefore(node, prev);
+    }
+}
+
+function moveDown(btn) {
+    event.stopPropagation();
+    const node = btn.closest('.node');
+    const next = node.nextElementSibling;
+    if (next) {
+        // To move down, we insert 'next' before 'current'
+        node.parentNode.insertBefore(next, node);
+    }
+}
+
+
+
+
+function selectNode(div) {
+    // 1. Highlight the node visually (Inspector)
+    document.querySelectorAll('.node').forEach(n => n.style.outline = '');
+    div.style.outline = '2px solid var(--accent)';
+    showInspector(div);
+
+    // 2. SMART FIX: Set insertion point to the PARENT block
+    // This allows you to add siblings immediately after clicking a node.
+    const parentBlock = div.closest('.tree-block');
+    if (parentBlock) {
+        // Clear previous container highlights
+        document.querySelectorAll('.tree-block').forEach(b => b.style.borderColor = '');
+        
+        // Highlight the parent container gently so you know where the next node goes
+        parentBlock.style.borderColor = 'rgba(122,162,247, 0.4)'; 
+        selectedBlockId = parentBlock.id;
+    }
+}
+
+function showInspector(div) {
+    const f = document.getElementById('inspectorFields');
+    f.innerHTML = '';
+    const type = div.dataset.type;
+
+    if (type === "actSupportPosition") {
+        f.innerHTML = `
+            <div style="margin-bottom:5px; color:#fff; font-weight:bold;">Support Offsets</div>
+            <label>X (Fwd/Back): <input type="number" id="edit_offsetx" value="${div.dataset.offsetx}"></label>
+            <div style="font-size:9px; color:#777; margin-bottom:5px;">Negative = Behind Carrier</div>
+            <label>Y (Side): <input type="number" id="edit_offsety" value="${div.dataset.offsety}"></label>
+        `;
+    } else if (type === "actSafetyPosition") {
+        f.innerHTML = `
+            <div style="margin-bottom:5px; color:#fff; font-weight:bold;">Safety Anchor</div>
+            <label>Dist from Net: <input type="number" id="edit_depth" value="${div.dataset.depth}"></label>
+        `;
+    } else {
+        f.innerHTML = "<i>No adjustable parameters for this node.</i>";
+    }
+
+    f.querySelectorAll("input").forEach(input => {
+        input.addEventListener("input", () => {
+            const key = input.id.replace("edit_","");
+            div.dataset[key] = input.value;
+        });
+    });
+}
+
+// DRAG/DROP
+let draggedItem = null;
+document.addEventListener('dragstart', e => { draggedItem = e.target.closest('.node'); e.dataTransfer.effectAllowed = 'move'; setTimeout(() => draggedItem.style.opacity = '0.5', 0); });
+document.addEventListener('dragend', e => { if (draggedItem) draggedItem.style.opacity = '1'; draggedItem = null; document.querySelectorAll('.active-drop').forEach(b => b.classList.remove('active-drop')); });
+document.addEventListener('dragover', e => { e.preventDefault(); const block = e.target.closest('.tree-block'); if (block) block.classList.add('active-drop'); });
+document.addEventListener('dragleave', e => { const block = e.target.closest('.tree-block'); if (block) block.classList.remove('active-drop'); });
+document.addEventListener('drop', e => { e.preventDefault(); const block = e.target.closest('.tree-block'); if (block && draggedItem) { if (draggedItem.contains(block)) return; block.classList.remove('active-drop'); block.appendChild(draggedItem); } });
+
+// SAVE & LOAD SYSTEM
+function serializeNode(el) {
+    const data = { type: el.dataset.type, cat: el.dataset.cat };
+    if (el.dataset.offsetx) data.offsetx = el.dataset.offsetx;
+    if (el.dataset.offsety) data.offsety = el.dataset.offsety;
+    if (el.dataset.depth) data.depth = el.dataset.depth;
+    if (data.cat === 'struct') {
+        const block = el.querySelector('.tree-block');
+        data.children = Array.from(block.children).filter(c => c.classList.contains('node')).map(serializeNode);
+    }
+    return data;
+}
+
+function saveLayout() {
+    const layout = { attacker: getColumnData('Aroot'), winger: getColumnData('Wroot'), defender: getColumnData('Droot') };
+    const blob = new Blob([JSON.stringify(layout, null, 2)], {type: "application/json"});
+    
+    // NEW: Get name from input, default to 'strategy' if empty
+    let name = document.getElementById('fileName').value || "strategy";
+    // Auto-add .json if the user didn't type it
+    if (!name.endsWith('.json')) name += ".json";
+
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name; 
+    a.click();
+}
+
+function getColumnData(id) {
+    return Array.from(document.getElementById(id).children).filter(c => c.classList.contains('node')).map(serializeNode);
+}
+
+function triggerLoad() { document.getElementById('fileInput').click(); }
+
+function loadLayout(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const layout = JSON.parse(e.target.result);
+            document.getElementById('Aroot').innerHTML = "";
+            document.getElementById('Wroot').innerHTML = "";
+            document.getElementById('Droot').innerHTML = "";
+            rebuildColumn('Aroot', layout.attacker);
+            rebuildColumn('Wroot', layout.winger);
+            rebuildColumn('Droot', layout.defender);
+        } catch(err) { alert("Error: " + err); }
+    };
+    reader.readAsText(file);
+    input.value = "";
+}
+
+function rebuildColumn(rootId, nodesData) {
+    const originalSelection = selectedBlockId;
+    
+    function processNodes(targetId, list) {
+        list.forEach(nodeData => {
+            // CRITICAL FIX: Reset the cursor to the current 'targetId' 
+            // before adding EVERY node. This prevents the cursor from 
+            // getting stuck inside the previous sibling's children.
+            selectedBlockId = targetId; 
+            
+            addNode(nodeData.type, nodeData.cat);
+            
+            // Grab the node we just added so we can process its properties/children
+            const newNode = document.getElementById(targetId).lastElementChild;
+            
+            if (nodeData.offsetx) newNode.dataset.offsetx = nodeData.offsetx;
+            if (nodeData.offsety) newNode.dataset.offsety = nodeData.offsety;
+            if (nodeData.depth) newNode.dataset.depth = nodeData.depth;
+            
+            // If it has children, dive in recursively
+            if (nodeData.cat === 'struct' && nodeData.children) {
+                const childBlockId = newNode.querySelector('.tree-block').id;
+                processNodes(childBlockId, nodeData.children);
+            }
+        });
+    }
+
+    // Clear the column first to be safe
+    document.getElementById(rootId).innerHTML = "";
+    
+    if (nodesData) processNodes(rootId, nodesData);
+    
+    // Restore the selection to what it was before loading (or null)
+    selectedBlockId = originalSelection;
+}
+
+function buildCode(el, indent) {
+    if (!el) return '';
+    const pad = '    '.repeat(indent);
+    const type = el.dataset.type;
+    const cat = el.dataset.cat;
+
+    if (cat === 'struct') {
+        const block = el.querySelector('.tree-block');
+        const children = Array.from(block.children).filter(c => c.classList.contains('node'));
+        let str = `${pad}new ${type}Node([\n`;
+        children.forEach((child,i) => {
+            str += buildCode(child, indent+1) + (i < children.length-1 ? ',' : '') + '\n';
+        });
+        str += `${pad}])`;
+        return str;
+    }
+
+    if (type === "actSupportPosition") {
+        return `${pad}new ActionNode(bb => {
+            const carrier = getPlayerById(puck.ownerId);
+            if (!carrier) return { tx: bb.p.x, ty: bb.p.y, action:'none' };
+            const finalX = carrier.x + (bb.forwardDir * ${el.dataset.offsetx});
+            const finalY = (bb.p.y < RY) ? carrier.y - ${el.dataset.offsety} : carrier.y + ${el.dataset.offsety};
+            return { tx: finalX, ty: finalY, action:'none' };
+        })`;
+    }
+
+    if (type === "actAggressiveGap") {
+        return `${pad}new ActionNode(bb => {
+            // 1. Find who we are shadowing (Carrier or Puck)
+            const carrier = getPlayerById(puck.ownerId) || {x:puck.x, y:puck.y};
+            
+            // 2. Call the existing helper function from helpers.js
+            // Signature: getAggressiveGapTarget(defender, carrier, goalX)
+            return getAggressiveGapTarget(bb.p, carrier, bb.myGoalX);
+        })`;
+    }
+
+
+    if (type === "condTeammatesOffside") {
+        return `${pad}new ConditionNode(bb => checkTeammatesOffside(bb.p))`;
+    }
+
+    if (type === "actRegroup") {
+        return `${pad}new ActionNode(bb => ({ 
+            // Target: 150px in front of our own net (Deep Retreat)
+            tx: bb.myGoalX + (bb.forwardDir * 150), 
+            ty: RY, 
+            action: "none" 
+        }))`;
+    }
+
+    if (type === "actGoBackdoor") {
+        return `${pad}new ActionNode(bb => getBackdoorPosition(bb.p))`;
+    }
+
+
+
+
+
+    if (type === "condHasBackdoor") {
+        return `${pad}new ConditionNode(bb => {
+            const target = findBackdoorTarget(bb.p);
+            if (target) {
+                bb.passTarget = target; // Save it for the Action Node
+                return true;
+            }
+            return false;
+        })`;
+    }
+
+    if (type === "actClearPuck") {
+        // This node just generates code that calls the function we added to helpers.js
+        return `${pad}new ActionNode(bb => clearPuckDefensive(bb.p))`;
+    }
+
+    if (type === "actSafetyPosition") {
+        return `${pad}new ActionNode(bb => ({
+            tx: bb.myGoalX + (bb.forwardDir * (${el.dataset.depth})),
+            ty: RY,
+            action:'none'
+        }))`;
+    }
+
+    return `${pad}${type}`;
+}
+
+function exportBT() {
+    const getRoot = id => {
+        const r = document.getElementById(id).firstElementChild;
+        return r ? buildCode(r,2) : 'actSmartIntercept'; 
+    };
+
+    const codeA = getRoot('Aroot');
+    const codeW = getRoot('Wroot');
+    const codeD = getRoot('Droot');
+
+    const final = `// ==========================================
+// STRATEGY: Generated by Builder V10 (Complete & Safe)
+// ==========================================
+(function() {
+    const STRATEGY_ID = "BT_GEN_V10_" + Math.floor(Math.random()*999);
+    const STRATEGY_NAME = "Builder Gen V10";
+
+    // --- ENGINE ---
+    class Node{constructor(){} tick(bb){return false;}}
+    class ConditionNode extends Node{constructor(fn){super();this.fn=fn;} tick(bb){return this.fn(bb)?"SUCCESS":"FAILURE";}}
+    class ActionNode extends Node{constructor(fn){super();this.fn=fn;} tick(bb){return this.fn(bb);}}
+    class SequenceNode extends Node{constructor(c){super();this.children=c;} tick(bb){for(let n of this.children){let r=n.tick(bb);if(r!=="SUCCESS")return r;}return"SUCCESS";}}
+    class SelectorNode extends Node{constructor(c){super();this.children=c;} tick(bb){for(let n of this.children){let r=n.tick(bb);if(r!=="FAILURE")return r;}return"FAILURE";}}
+
+    // Safe Physics Prediction
+    function predictPuckIntersection(p) {
+        if (typeof puck === 'undefined' || isNaN(puck.x)) return { x: p.x, y: p.y };
+        return { x: puck.x + puck.vx * 10, y: puck.y + puck.vy * 10 };
+    }
+
+    function makeBB(p) {
+        const safeRX = (typeof RX !== 'undefined') ? RX : 500;
+        const safeGoal1 = (typeof goal1 !== 'undefined') ? goal1 : 175;
+        const safeGoal2 = (typeof goal2 !== 'undefined') ? goal2 : 825;
+        const myGoalX = (p.team === 0 ? safeGoal1 : safeGoal2);
+        const enemyGoal = (p.team === 0 ? safeGoal2 : safeGoal1);
+        const forwardDir = (enemyGoal > myGoalX ? 1 : -1);
+        const carrier = getPlayerById(puck.ownerId);
+
+        return {
+            p, myGoalX, enemyGoal, forwardDir, safeRX,
+            hasPuck: (puck.ownerId === p.id),
+            loosePuck: (puck.ownerId === null),
+            oppHasPuck: (carrier && carrier.team !== p.team),
+            teamHasPuck: (carrier && carrier.team === p.team),
+            inShotRange: (Math.hypot(enemyGoal - p.x, RY - p.y) < 200),
+            puckInDefZone: (forwardDir === 1 ? puck.x < safeRX - 60 : puck.x > safeRX + 60),
+            puckInOffZone: (forwardDir === 1 ? puck.x > safeRX + 60 : puck.x < safeRX - 60),
+            puckInNeuZone: (Math.abs(puck.x - safeRX) <= 60), // Between the two blue lines
+            interceptPoint: predictPuckIntersection(p),
+            carryTarget: null, passTarget: null
+        };
+    }
+
+    // --- CONDITIONS ---
+    const condHasPuck = new ConditionNode(bb => bb.hasPuck);
+    const condLoosePuck = new ConditionNode(bb => bb.loosePuck);
+    const condInShotRange = new ConditionNode(bb => bb.inShotRange);
+    const condTeamHasPuck = new ConditionNode(bb => bb.teamHasPuck);
+    const condOppHasPuck = new ConditionNode(bb => bb.oppHasPuck);
+    const condPuckInDefZone = new ConditionNode(bb => bb.puckInDefZone);
+    const condPuckInOffZone = new ConditionNode(bb => bb.puckInOffZone);
+    const condPuckInNeuZone = new ConditionNode(bb => bb.puckInNeuZone);
+
+    const condForwardLaneClear = new ConditionNode(bb => {
+        bb.carryTarget = { x: bb.p.x + bb.forwardDir * 100, y: bb.p.y };
+        return !isLaneBlocked(bb.p.x, bb.p.y, bb.carryTarget.x, bb.carryTarget.y, bb.p.team);
+    });
+
+    const condHasBreakoutPass = new ConditionNode(bb => {
+        for (let m of players) {
+            // FIX: Add "&& m.type === 'skater'" to this line
+            if (m.team === bb.p.team && m.id !== bb.p.id && m.type === 'skater' && (m.x - bb.p.x) * bb.forwardDir > 0) {
+                if (!isLaneBlocked(bb.p.x, bb.p.y, m.x, m.y, bb.p.team)) {
+                    bb.passTarget = m;
+                    return true;
+                }
+            }
+        }
+        return false;
+    });
+
+    // FIXED: Safe Am I Closest
+    const condAmIClosest = new ConditionNode(bb => {
+        let c = null, d = 9999;
+        for (let m of players) {
+            if (m.team === bb.p.team) {
+                let dist = Math.hypot(m.x - puck.x, m.y - puck.y);
+                if (dist < d) { d = dist; c = m; }
+            }
+        }
+        return c && c.id === bb.p.id;
+    });
+
+    // --- ACTIONS ---
+    const actShoot = new ActionNode(bb => ({ tx: bb.enemyGoal, ty: RY, action: "shoot" }));
+
+    // UPDATED: Stops 40px short to avoid getting stuck in net
+    const actDriveNet = new ActionNode(bb => ({ 
+        tx: bb.enemyGoal - (bb.forwardDir * 40), 
+        ty: RY, 
+        action: "none" 
+    }));
+    
+    // UPDATED: Wingers stay in their lanes (Left stays Top, Right stays Bottom)
+    const actHoverBlueLine = new ActionNode(bb => {
+        let yOff = 0;
+        if (bb.p.role === 'LW' || bb.p.role === 'LD') yOff = -100;
+        if (bb.p.role === 'RW' || bb.p.role === 'RD') yOff = 100;
+        return { tx: (bb.forwardDir === 1 ? bb.safeRX + 60 : bb.safeRX - 60), ty: RY + yOff, action: "none" };
+    });
+
+    const actTagUp_T1 = new ActionNode(bb => ({ tx: bb.safeRX - bb.forwardDir * 50, ty: RY, action: "none" }));
+    const actIdle = new ActionNode(bb => ({ tx: bb.p.x, ty: bb.p.y, action: "none" }));
+    const actChill = new ActionNode(bb => ({ tx: bb.p.x, ty: bb.p.y, action: "none" }));
+
+    // Robust Intercept (Physics Version)
+    const actSmartIntercept = new ActionNode(bb => {
+        // Use the physics solver in helpers.js (Fixes orbiting)
+        const target = getPuckIntercept(bb.p);
+        return { 
+            tx: target.x, 
+            ty: target.y, 
+            action: "none" 
+        };
+    });
+
+    // UPDATED: Carry Wide if no specific target (Creates spacing)
+    const actExecuteCarry = new ActionNode(bb => {
+        if (bb.carryTarget) return { tx: bb.carryTarget.x, ty: bb.carryTarget.y, action: "none" };
+        
+        let yOff = 0;
+        if (bb.p.role === 'LW' || bb.p.role === 'LD') yOff = -120; // Wide Lane
+        if (bb.p.role === 'RW' || bb.p.role === 'RD') yOff = 120;
+        
+        return { tx: bb.enemyGoal, ty: RY + yOff, action: "none" };
+    });
+
+    const actExecutePass = new ActionNode(bb => {
+        if (bb.passTarget) return { tx: bb.passTarget.x, ty: bb.passTarget.y, action: "pass", target: bb.passTarget };
+        return { tx: bb.enemyGoal, ty: RY, action: "none" };
+    });
+
+    // UPDATED: Defenders split up (Box formation instead of huddle)
+    const actDefendHome = new ActionNode(bb => {
+        let yOff = 0;
+        if (bb.p.role === 'LD' || bb.p.role === 'LW') yOff = -60;
+        if (bb.p.role === 'RD' || bb.p.role === 'RW') yOff = 60;
+        return {
+            tx: bb.myGoalX + (bb.forwardDir * 120),
+            ty: RY + yOff,
+            action: 'none'
+        };
+    });
+
+    // UPDATED: Deep Retreat + Lane Spacing
+    const actRegroup = new ActionNode(bb => {
+        let yOff = 0;
+        if (bb.p.role === 'LD') yOff = -70; 
+        if (bb.p.role === 'RD') yOff = 70;  
+        return { 
+            tx: bb.myGoalX + (bb.forwardDir * 150), 
+            ty: RY + yOff, 
+            action: "none" 
+        };
+    });
+
+    // --- TREES ---
+    const TREE_ATTACKER = 
+${codeA};
+
+    const TREE_WINGER = 
+${codeW};
+
+    const TREE_DEFENDER = 
+${codeD};
+
+    // --- MAIN BRAIN ---
+    function think(p) {
+        const bb = makeBB(p);
+        let result = null;
+        const role = p.role;
+        if (role === "C") result = TREE_ATTACKER.tick(bb);
+        else if (role === "A" || role === "D" || role === "LD" || role === "RD") result = TREE_DEFENDER.tick(bb);
+        else result = TREE_WINGER.tick(bb);
+
+        if (!result || typeof result === "string" || isNaN(result.tx)) {
+            return { tx: p.x, ty: p.y, action: "none" };
+        }
+        return result;
+    }
+
+    if (typeof registerStrategy === "function") {
+        registerStrategy(STRATEGY_ID, STRATEGY_NAME, "Builder", "BLD", think, { main: "#888", secondary: "#444" });
+    }
+})();
+`;
+
+    document.getElementById("output").value = final;
+}
+
+
+
+
+</script>
+</body>
+</html>
