@@ -102,6 +102,7 @@
         <button class="btn" onclick="addNode('condAmIClosest','cond')">Am I Closest?</button>
         <button class="btn" onclick="addNode('condHasBackdoor','cond')">Has Backdoor Pass</button>
         <button class="btn" onclick="addNode('condTeammatesOffside','cond')">Teammates Offside?</button>
+        <button class="btn" onclick="addNode('condIsPressured','cond')">I AM PRESSURED</button>
 
 
 
@@ -563,6 +564,18 @@ function exportBT() {
             }
         }
         return false;
+    });
+
+
+    // Checks if the carrier is surrounded by enemies
+    const condIsPressured = new ConditionNode(bb => {
+        let pressureCount = 0;
+        for (const o of players) {
+            if (o.team !== bb.p.team && Math.hypot(o.x - bb.p.x, o.y - bb.p.y) < 80) {
+                pressureCount++;
+            }
+        }
+        return pressureCount >= 2;
     });
 
     // FIXED: Safe Am I Closest

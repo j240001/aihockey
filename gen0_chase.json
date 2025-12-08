@@ -1,0 +1,53 @@
+{
+  "attacker": [
+    {
+      "type": "Selector",
+      "cat": "struct",
+      "children": [
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            { "type": "condHasPuck", "cat": "cond" },
+            { "type": "actShoot", "cat": "act" }
+          ]
+        },
+        { "type": "actSmartIntercept", "cat": "act" }
+      ]
+    }
+  ],
+  "winger": [
+    {
+      "type": "Selector",
+      "cat": "struct",
+      "children": [
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            { "type": "condHasPuck", "cat": "cond" },
+            { "type": "actShoot", "cat": "act" }
+          ]
+        },
+        { "type": "actSmartIntercept", "cat": "act" }
+      ]
+    }
+  ],
+  "defender": [
+    {
+      "type": "Selector",
+      "cat": "struct",
+      "children": [
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            { "type": "condHasPuck", "cat": "cond" },
+            { "type": "actShoot", "cat": "act" }
+          ]
+        },
+        { "type": "actSmartIntercept", "cat": "act" }
+      ]
+    }
+  ]
+}
