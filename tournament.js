@@ -12,7 +12,7 @@ const Tournament = {
     // --- CONFIGURATION ---
     watchMode: false,    
     speedMult: 100,     
-    rounds: 10, 
+    rounds: 27, 
     
     // 1. SETUP
     init: function() {
