@@ -1,0 +1,440 @@
+{
+  "c": [
+    {
+      "type": "Selector",
+      "cat": "struct",
+      "children": [
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condTeammatesOffside",
+              "cat": "cond"
+            },
+            {
+              "type": "actTagUp_T1",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "Selector",
+              "cat": "struct",
+              "children": [
+                {
+                  "type": "Sequence",
+                  "cat": "struct",
+                  "children": [
+                    {
+                      "type": "condPuckInDefZone",
+                      "cat": "cond"
+                    },
+                    {
+                      "type": "condHasBreakoutPass",
+                      "cat": "cond"
+                    },
+                    {
+                      "type": "actExecutePass",
+                      "cat": "act"
+                    }
+                  ]
+                },
+                {
+                  "type": "Sequence",
+                  "cat": "struct",
+                  "children": [
+                    {
+                      "type": "condInShotRange",
+                      "cat": "cond"
+                    },
+                    {
+                      "type": "actShoot",
+                      "cat": "act"
+                    }
+                  ]
+                },
+                {
+                  "type": "actDriveNet",
+                  "cat": "act"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "actSmartIntercept",
+          "cat": "act"
+        }
+      ]
+    }
+  ],
+  "lw": [
+    {
+      "type": "Selector",
+      "cat": "struct",
+      "children": [
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condTeammatesOffside",
+              "cat": "cond"
+            },
+            {
+              "type": "actTagUp_T1",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "Selector",
+              "cat": "struct",
+              "children": [
+                {
+                  "type": "Sequence",
+                  "cat": "struct",
+                  "children": [
+                    {
+                      "type": "condPuckInDefZone",
+                      "cat": "cond"
+                    },
+                    {
+                      "type": "condHasBreakoutPass",
+                      "cat": "cond"
+                    },
+                    {
+                      "type": "actExecutePass",
+                      "cat": "act"
+                    }
+                  ]
+                },
+                {
+                  "type": "Sequence",
+                  "cat": "struct",
+                  "children": [
+                    {
+                      "type": "condInShotRange",
+                      "cat": "cond"
+                    },
+                    {
+                      "type": "actShoot",
+                      "cat": "act"
+                    }
+                  ]
+                },
+                {
+                  "type": "actDriveNet",
+                  "cat": "act"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condPuckInDefZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actHoverBlueLine",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "actSmartIntercept",
+          "cat": "act"
+        }
+      ]
+    }
+  ],
+  "rw": [
+    {
+      "type": "Selector",
+      "cat": "struct",
+      "children": [
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condTeammatesOffside",
+              "cat": "cond"
+            },
+            {
+              "type": "actTagUp_T1",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "Selector",
+              "cat": "struct",
+              "children": [
+                {
+                  "type": "Sequence",
+                  "cat": "struct",
+                  "children": [
+                    {
+                      "type": "condPuckInDefZone",
+                      "cat": "cond"
+                    },
+                    {
+                      "type": "condHasBreakoutPass",
+                      "cat": "cond"
+                    },
+                    {
+                      "type": "actExecutePass",
+                      "cat": "act"
+                    }
+                  ]
+                },
+                {
+                  "type": "Sequence",
+                  "cat": "struct",
+                  "children": [
+                    {
+                      "type": "condInShotRange",
+                      "cat": "cond"
+                    },
+                    {
+                      "type": "actShoot",
+                      "cat": "act"
+                    }
+                  ]
+                },
+                {
+                  "type": "actDriveNet",
+                  "cat": "act"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condPuckInDefZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actHoverBlueLine",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "actSmartIntercept",
+          "cat": "act"
+        }
+      ]
+    }
+  ],
+  "ld": [
+    {
+      "type": "Selector",
+      "cat": "struct",
+      "children": [
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condTeammatesOffside",
+              "cat": "cond"
+            },
+            {
+              "type": "actTagUp_T1",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "Selector",
+              "cat": "struct",
+              "children": [
+                {
+                  "type": "Sequence",
+                  "cat": "struct",
+                  "children": [
+                    {
+                      "type": "condInShotRange",
+                      "cat": "cond"
+                    },
+                    {
+                      "type": "actShoot",
+                      "cat": "act"
+                    }
+                  ]
+                },
+                {
+                  "type": "Sequence",
+                  "cat": "struct",
+                  "children": [
+                    {
+                      "type": "condHasBreakoutPass",
+                      "cat": "cond"
+                    },
+                    {
+                      "type": "actExecutePass",
+                      "cat": "act"
+                    }
+                  ]
+                },
+                {
+                  "type": "actExecuteCarry",
+                  "cat": "act"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condOppHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "actDefendHome",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "actHoverBlueLine",
+          "cat": "act"
+        }
+      ]
+    }
+  ],
+  "rd": [
+    {
+      "type": "Selector",
+      "cat": "struct",
+      "children": [
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condTeammatesOffside",
+              "cat": "cond"
+            },
+            {
+              "type": "actTagUp_T1",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "Selector",
+              "cat": "struct",
+              "children": [
+                {
+                  "type": "Sequence",
+                  "cat": "struct",
+                  "children": [
+                    {
+                      "type": "condInShotRange",
+                      "cat": "cond"
+                    },
+                    {
+                      "type": "actShoot",
+                      "cat": "act"
+                    }
+                  ]
+                },
+                {
+                  "type": "Sequence",
+                  "cat": "struct",
+                  "children": [
+                    {
+                      "type": "condHasBreakoutPass",
+                      "cat": "cond"
+                    },
+                    {
+                      "type": "actExecutePass",
+                      "cat": "act"
+                    }
+                  ]
+                },
+                {
+                  "type": "actExecuteCarry",
+                  "cat": "act"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condOppHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "actDefendHome",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "actHoverBlueLine",
+          "cat": "act"
+        }
+      ]
+    }
+  ]
+}
