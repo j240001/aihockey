@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>BRAIN BUILDER V 0020 (Strict Logic)</title>
+<title>BRAIN BUILDER V 0021 (Fixed Export)</title>
 <style>
     /* GLOBAL BOX SIZING FIX */
     * { box-sizing: border-box; }
@@ -10,9 +10,11 @@
     :root { --bg: #1e1e2e; --panel: #252535; --node: #333344; --accent: #7aa2f7; --border: #444; }
     body { background: var(--bg); color: #c0caf5; font-family: 'Segoe UI', monospace; display: flex; gap: 10px; padding: 10px; height: 98vh; overflow: hidden; font-size: 12px; }
 
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    /* Custom Scrollbars */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
     ::-webkit-scrollbar-track { background: #111; }
-    ::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #555; }
 
     .panel { 
         background: var(--panel); 
@@ -32,7 +34,7 @@
         border: 1px solid var(--border); 
         border-radius: 4px; 
         padding: 10px; 
-        overflow-x: auto; 
+        overflow: auto; /* Enable BOTH X and Y scrolling on the main container */
         display: flex; 
         gap: 10px; 
         min-width: 0; 
@@ -45,6 +47,9 @@
         flex-direction: column; 
         border-right: 1px dashed #333; 
         padding-right: 5px; 
+        
+        /* KEEP the padding to create the space */
+        padding-bottom: 500px; 
     }
 
     .tree-column:last-child { border-right: none; }
@@ -250,8 +255,6 @@
 // ==========================================
 // CONFIG: NODE DEFINITIONS & CONSTRAINTS
 // ==========================================
-// Contexts: OFF (Offense), DEF (Defense), NEU (Neutral), ANY (Universal)
-
 const NODE_LIBRARY = [
     { header: "FLOW CONTROL" },
     { type: "Selector",         cat: "struct", label: "Selector",           acr: "SEL",  req: "ANY" },
@@ -265,12 +268,8 @@ const NODE_LIBRARY = [
 
     { header: "OFFSIDE LOGIC (DLY)" },
     { type: "condTeammatesOffside", cat: "cond", label: "Teammates Offside",    acr: "OFFS?", sets: "DLY", req: "ANY" },
-    // Tag Up is for the players deep in the zone
     { type: "actTagUp_T1",          cat: "act",  label: "Tag Up",               acr: "TAG",   req: "DLY" }, 
-    // These are for the Carrier waiting at the line
-    { type: "actHoverBlueLine",     cat: "act",  label: "Hover Blue Line",      acr: "HOVR",  req: "DLY" },
-    { type: "actRegroup",           cat: "act",  label: "Regroup",              acr: "GRP",   req: "DLY" },
-
+    
     { header: "CHECKS (No Context Change)" },
     { type: "condPuckInDefZone",    cat: "cond", label: "Puck Def Zone",        acr: "DZ",    req: "ANY" },
     { type: "condPuckInNeuZone",    cat: "cond", label: "Puck Neu Zone",        acr: "NZ",    req: "ANY" },
@@ -286,28 +285,28 @@ const NODE_LIBRARY = [
     
     { type: "actShoot",             cat: "act",  label: "Shoot",                acr: "SHOT",  req: "OFF" },
     { type: "actDriveNet",          cat: "act",  label: "Drive Net",            acr: "DRIV",  req: "ANY" },
-    { type: "actExecuteCarry",      cat: "act",  label: "Execute Carry",        acr: "CARY",  req: "OFF" },
-    { type: "actExecutePass",       cat: "act",  label: "Execute Pass",         acr: "PASS",  req: "OFF" },
-    { type: "actSupportPosition",   cat: "act",  label: "Support Pos",          acr: "SUP",   req: "OFF" },
+    { type: "actExecuteCarry",      cat: "act",  label: "Execute Carry",        acr: "CARY",  req: "ANY" },
+    { type: "actExecutePass",       cat: "act",  label: "Execute Pass",         acr: "PASS",  req: "ANY" },
+    { type: "actSupportPosition",   cat: "act",  label: "Support Pos",          acr: "SUP",   req: "ANY" },
     { type: "actGoBackdoor",        cat: "act",  label: "Go Backdoor",          acr: "OBD",   req: "OFF" },
-
 
     { header: "DEFENSIVE ACTIONS" },
     { type: "actDefendHome",        cat: "act",  label: "Defend Home",          acr: "HOME",  req: "DEF" },
-    { type: "actAggressiveGap",     cat: "act",  label: "Aggressive Gap",       acr: "GAP",   req: "DEF" },
+    { type: "actAggressiveGap",     cat: "act",  label: "Aggressive Gap",       acr: "GAP",   req: "ANY" },
     { type: "actClearPuck",         cat: "act",  label: "Clear Puck",           acr: "CLR",   req: "DEF" }, 
 
     { header: "NEUTRAL ACTIONS" },
     { type: "actSmartIntercept",    cat: "act",  label: "Smart Intercept",      acr: "INT",   req: "ANY" },
 
     { header: "UNIVERSAL" },
-    // Hover Blue Line is allowed in OFF (Point man), DEF (Holding line), and DLY (Waiting for tag up)
     { type: "actHoverBlueLine",     cat: "act",  label: "Hover Blue Line",      acr: "HOVR",  req: "ANY" }, 
+    { type: "actRegroup",           cat: "act",  label: "Regroup",              acr: "GRP",   req: "ANY" }, 
+    
     { type: "actIdle",              cat: "act",  label: "Idle / Stop",          acr: "IDLE",  req: "ANY" },
     { type: "actChill",             cat: "act",  label: "Chill",                acr: "CHIL",  req: "ANY" },
     { type: "actSafetyPosition",    cat: "act",  label: "Safety Pos",           acr: "SAFE",  req: "ANY" },
-    { type: "actRegroup",           cat: "act",  label: "Regroup",              acr: "GRP",   req: "ANY" },
 ];
+
 function getNodeConfig(type) {
     return NODE_LIBRARY.find(n => n.type === type) || { label: type, acr: type, req: "ANY" };
 }
@@ -376,33 +375,21 @@ function getEffectiveContext(blockId) {
     let el = document.getElementById(blockId);
     if (!el) return "ANY";
 
-    // 1. If this block belongs to a SELECTOR, context resets to ANY (or parent context)
-    // 2. If this block belongs to a SEQUENCE, context accumulates from previous siblings.
-    
-    // Find the Parent Node of this block
     const parentNode = el.parentNode; 
     
     if (!parentNode || !parentNode.classList.contains('node')) {
-        // Root Level
         return "ANY";
     }
     
     const parentType = parentNode.dataset.type;
     
     if (parentType === "Selector") {
-        // Selectors are Branching logic. 
-        // Child 2 doesn't know what happened in Child 1.
-        // So we just return the context of the Selector itself (Recursive up)
         const parentBlock = parentNode.closest('.tree-block');
         return parentBlock ? getEffectiveContext(parentBlock.id) : "ANY";
     }
     
     if (parentType === "Sequence") {
-        // Sequences are Linear logic.
-        // We must check if any previous sibling SETS the context.
-        
         let context = "ANY";
-        // Check siblings in the DOM order
         for (let child of el.children) {
             if (!child.classList.contains('node')) continue;
             const type = child.dataset.type;
@@ -410,10 +397,8 @@ function getEffectiveContext(blockId) {
             if (cfg.sets) context = cfg.sets; 
         }
         
-        // If we found a specific context, return it.
         if (context !== "ANY") return context;
         
-        // If not, inherit from parent
         const parentBlock = parentNode.closest('.tree-block');
         return parentBlock ? getEffectiveContext(parentBlock.id) : "ANY";
     }
@@ -429,19 +414,15 @@ function updatePalette(context) {
         const btn = document.getElementById(`btn_${item.type}`);
         if (!btn) return;
 
-        // "ANY" required nodes are always available
         if (item.req === "ANY") {
-            // BUT: If the current context is OFF/DEF/NEU, we disable state setters
-            // to prevent "HasPuck" -> "LoosePuck" (OFF -> NEU) conflicts.
             if (item.sets && context !== "ANY") {
-                btn.disabled = true; // Block state switching inside a state
+                btn.disabled = true; 
             } else {
                 btn.disabled = false;
             }
             return;
         }
 
-        // Strict Context Match
         if (item.req === context) {
             btn.disabled = false;
         } else {
@@ -467,12 +448,10 @@ function selectBlock(id) {
 function addNode(type, cat) {
     if (!selectedBlockId) { alert("Click inside a column box first."); return; }
     
-    // Safety check just in case
     const currentCtx = getEffectiveContext(selectedBlockId);
     const cfg = getNodeConfig(type);
     
     if (cfg.req !== "ANY" && cfg.req !== currentCtx) {
-        // Double check allowability (redundant with disabled buttons but safe)
         return;
     }
 
@@ -513,7 +492,6 @@ function addNode(type, cat) {
     div.addEventListener('click', e => { e.stopPropagation(); selectNode(div); });
     container.appendChild(div);
     
-    // Refresh palette
     setTimeout(() => {
         const newCtx = getEffectiveContext(selectedBlockId);
         updatePalette(newCtx);
@@ -526,7 +504,7 @@ function moveUp(btn) {
     const prev = node.previousElementSibling;
     if (prev) {
         node.parentNode.insertBefore(node, prev);
-        setTimeout(() => selectBlock(selectedBlockId), 50); // Refresh context check
+        setTimeout(() => selectBlock(selectedBlockId), 50); 
     }
 }
 
@@ -561,8 +539,6 @@ function pasteNode() {
     if (!clipboardData) { alert("Nothing to paste!"); return; }
     if (!selectedBlockId) { alert("Select a location to paste into."); return; }
     
-    // Note: Paste bypasses context checks for now to allow moving blocks around,
-    // but the palette will update to warn you if you entered an invalid state.
     processNodeTree(selectedBlockId, [clipboardData]);
     setTimeout(() => selectBlock(selectedBlockId), 50);
 }
@@ -572,7 +548,6 @@ function processNodeTree(targetId, list) {
         const savedSelection = selectedBlockId;
         selectedBlockId = targetId; 
         
-        // Direct creation to bypass 'addNode' constraints during paste/load
         const container = document.getElementById(targetId);
         const div = document.createElement('div');
         div.className = 'node';
@@ -830,7 +805,7 @@ function exportBT() {
 
     const final = `// ==========================================
 // STRATEGY: ${sName} (${tCode})
-// Generated by Builder V20
+// Generated by Builder V21
 // ==========================================
 (function() {
     const STRATEGY_ID = "BT_" + "${tCode}_" + Math.floor(Math.random()*99999);
