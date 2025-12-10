@@ -47,6 +47,7 @@
 <script src="teams/bt9.js"></script>
 <script src="teams/bt10.js"></script>
 <script src="teams/bt11.js"></script>
+<script src="teams/bt12.js"></script>
 
 
 
@@ -62,8 +63,10 @@
 // bt8 = MTL
 // bt9 = EDM
 // bt10 = FLA
+// bt11 = STL
+// bt12 = MOS (moscow red army)
 
-// This version 2410 improves net bugs and checked/hit skaters animation (cw and ccw now)
+// This version 2412 attempts to add a feature to remove or add skaters during a game to test short-handed play
 
 
 
@@ -523,14 +526,14 @@ function handleOptionsInput(e) {
 // =========================================================
 // GAME CLOCK AND SCORE GLOBALS
 // =========================================================
-const GAME_DURATION_SECONDS = 80; // seconds
+const GAME_DURATION_SECONDS = 60; // seconds
 let timeRemaining = GAME_DURATION_SECONDS;
 let lastGameTimeUpdate = performance.now();
 
 // MULTI-PERIOD SYSTEM
 let currentPeriod = 1;
 const TOTAL_PERIODS = 3;
-const PERIOD_LENGTH_SECONDS = 80; // same as GAME_DURATION_SECONDS
+const PERIOD_LENGTH_SECONDS = 60; // same as GAME_DURATION_SECONDS
 
 
 // ==========================================
@@ -543,7 +546,12 @@ let replayIndex = 0;            // Current frame of replay
 let replayFinishedCallback = null; // Function to run after replay ends
 
 
-
+// =========================================================
+// PENDING ROSTER CHANGES (Safe Mode)
+// =========================================================
+let pendingRosterChanges = { team0: 0, team1: 0 }; // Stores +1, -1, etc.
+const MAX_SKATERS = 5;
+const MIN_SKATERS = 0;
 
 
 
@@ -761,6 +769,56 @@ document.addEventListener("keydown", (e) => {
 
 
 
+// =========================================================
+// ROSTER CONTROL INPUTS (Keys 1, 2, 9, 0)
+// =========================================================
+document.addEventListener("keydown", (e) => {
+    // Only allow these controls during active game modes
+    if (gameState === "playing" || gameState === "practice" || gameState === "training") {
+
+        // Count current actual skaters so we know limits
+        const t0Count = players.filter(p => p.team === 0 && p.type === "skater").length;
+        const t1Count = players.filter(p => p.team === 1 && p.type === "skater").length;
+
+        // --- TEAM 0 (BLUE) ---
+        // Key 1: Queue Removal (-1 Player)
+        if (e.key === "1") {
+            // Check: (Current Count) + (Pending Changes) - 1 must be > Min
+            if (t0Count + pendingRosterChanges.team0 > MIN_SKATERS) {
+                pendingRosterChanges.team0--;
+                console.log("Queueing Blue Removal. Pending:", pendingRosterChanges.team0);
+            }
+        }
+        // Key 2: Queue Add (+1 Player)
+        if (e.key === "2") {
+            // Check: (Current Count) + (Pending Changes) + 1 must be < Max
+            if (t0Count + pendingRosterChanges.team0 < MAX_SKATERS) {
+                pendingRosterChanges.team0++;
+                console.log("Queueing Blue Add. Pending:", pendingRosterChanges.team0);
+            }
+        }
+
+        // --- TEAM 1 (RED) ---
+        // Key 9: Queue Removal (-1 Player)
+        if (e.key === "9") {
+            if (t1Count + pendingRosterChanges.team1 > MIN_SKATERS) {
+                pendingRosterChanges.team1--;
+                console.log("Queueing Red Removal. Pending:", pendingRosterChanges.team1);
+            }
+        }
+        // Key 0: Queue Add (+1 Player)
+        if (e.key === "0") {
+            if (t1Count + pendingRosterChanges.team1 < MAX_SKATERS) {
+                pendingRosterChanges.team1++;
+                console.log("Queueing Red Add. Pending:", pendingRosterChanges.team1);
+            }
+        }
+    }
+});
+
+
+
+
 const W = canvas.width;
 const H = canvas.height;
 
@@ -837,6 +895,87 @@ function lateralClear(p, dir) {
     return true;
 }
 
+
+
+// Re-using the roster positions for spawn coordinates
+const ROSTER_POSITIONS = [
+    { role: "C",  x: 20, y: 0 },
+    { role: "RW", x: 20, y: 55 },   
+    { role: "LD", x: 100, y: -55 }, 
+    { role: "LW", x: 20, y: -55 },  
+    { role: "RD", x: 100, y: 55 }   
+];
+
+function applyPendingRosterChanges() {
+    // 1. Process Team 0
+    while (pendingRosterChanges.team0 !== 0) {
+        if (pendingRosterChanges.team0 > 0) {
+            addSkater(0);
+            pendingRosterChanges.team0--;
+        } else {
+            removeSkater(0);
+            pendingRosterChanges.team0++;
+        }
+    }
+
+    // 2. Process Team 1
+    while (pendingRosterChanges.team1 !== 0) {
+        if (pendingRosterChanges.team1 > 0) {
+            addSkater(1);
+            pendingRosterChanges.team1--;
+        } else {
+            removeSkater(1);
+            pendingRosterChanges.team1++;
+        }
+    }
+    
+    // 3. Re-assign roles immediately after changes
+    assignRolesForTeam(0);
+    assignRolesForTeam(1);
+}
+
+function addSkater(teamId) {
+    const currentSkaters = players.filter(p => p.team === teamId && p.type === "skater");
+    if (currentSkaters.length >= MAX_SKATERS) return;
+
+    const newIndex = currentSkaters.length;
+    const def = ROSTER_POSITIONS[newIndex];
+    
+    // Generate Unique ID
+    let maxId = 0;
+    players.forEach(p => maxId = Math.max(maxId, p.id));
+    
+    const p = makePlayer({
+        id: maxId + 1, 
+        team: teamId, 
+        type: "skater", 
+        isHuman: false,
+        x: (teamId === 0) ? RX - def.x : RX + def.x, 
+        y: RY + def.y, 
+        angle: (teamId === 0) ? 0 : Math.PI
+    });
+
+    p.role = def.role; 
+    p.homePos = { x: p.x, y: p.y }; 
+    initPlayerBrain(p);
+    players.push(p);
+}
+
+function removeSkater(teamId) {
+    const currentSkaters = players.filter(p => p.team === teamId && p.type === "skater");
+    if (currentSkaters.length <= MIN_SKATERS) return;
+
+    const victim = currentSkaters[currentSkaters.length - 1];
+    
+    // Safety: Release puck if held
+    if (puck.ownerId === victim.id) {
+        puck.ownerId = null;
+        puck.vx = 0; puck.vy = 0;
+    }
+
+    const idx = players.indexOf(victim);
+    if (idx > -1) players.splice(idx, 1);
+}
 
 
 
@@ -3470,6 +3609,12 @@ function updateAISkater(p) {
         d = { tx: p.x, ty: p.y, action: "none" };
     }
 
+    // This catches ANY strategy returning null, undefined, or "FAILURE"
+    if (!d || typeof d.tx === 'undefined') {
+        d = { tx: p.x, ty: p.y, action: "none" };
+    }
+    // *******************************
+
     // =========================================================
     // *** BRAIN STEM OVERRIDE: ANTI-CAMPING & DELAYED OFFSIDE ***
     // =========================================================
@@ -4392,6 +4537,29 @@ function drawBroadcastScoreboard() {
     ctx.fillText(sog1, centerX + 35, bottomCenterY); 
 
     ctx.restore();
+
+
+
+        // Add this inside drawScoreboard or drawBroadcastScoreboard
+    if (pendingRosterChanges.team0 !== 0 || pendingRosterChanges.team1 !== 0) {
+        ctx.save();
+        ctx.font = "bold 16px Arial";
+        ctx.fillStyle = "#ffff00"; // Yellow warning text
+        ctx.textAlign = "center";
+        
+        let msg = "ROSTER CHANGE PENDING (WAIT FOR WHISTLE)";
+        // Draw it just below the scoreboard
+        ctx.fillText(msg, W/2, 110); 
+        
+        // Optional: Show specific details
+        let detail = "";
+        if (pendingRosterChanges.team0 !== 0) detail += `Blue: ${pendingRosterChanges.team0 > 0 ? '+' : ''}${pendingRosterChanges.team0} `;
+        if (pendingRosterChanges.team1 !== 0) detail += `Red: ${pendingRosterChanges.team1 > 0 ? '+' : ''}${pendingRosterChanges.team1}`;
+        
+        ctx.font = "12px Arial";
+        ctx.fillText(detail, W/2, 130);
+        ctx.restore();
+    }
 }
 
 
@@ -4587,6 +4755,9 @@ function resetAfterGoal(scoringTeam) {
 
 
 function doFaceoffReset() {
+
+    applyPendingRosterChanges();
+
     puck.ownerId = null;
     puck.vx = 0;
     puck.vy = 0;
@@ -4805,7 +4976,7 @@ function renderTournamentStatus() {
     ctx.font = "bold 24px Arial";
     ctx.fillText("🏆 LIVE STANDINGS", W/2, 40);
 
-    // 3. Sort Standings (Points -> Wins -> Goal Diff)
+    // 3. Sort Standings
     const sorted = Object.values(Tournament.standings).sort((a,b) => {
         if (b.Pts !== a.Pts) return b.Pts - a.Pts;
         if (b.W !== a.W) return b.W - a.W;
@@ -4814,138 +4985,17 @@ function renderTournamentStatus() {
 
     // 4. Draw Table
     const startY = 80;
-    const rowH = 22; // Tighter rows
+    const rowH = 22;
     
-    // Column Positions (Adjusted for new columns)
-    // RK, TEAM, GP, W, L, OTL, SOW, SOL, PTS, GF, GA
-    const colX = [120, 180, 380, 430, 480, 530, 580, 630, 700, 760, 810]; 
+    // Updated Columns: Added SOGF, SOGA at the end
+    // RK, TEAM, GP, W, L, OTL, SOW, SOL, PTS, GF, GA, SOGF, SOGA
+    const colX = [80, 140, 340, 390, 440, 490, 540, 590, 660, 720, 770, 840, 920]; 
     
     ctx.textAlign = "left";
     ctx.font = "bold 13px Monospace";
-    ctx.fillStyle = "#888"; // Header Color
+    ctx.fillStyle = "#888"; 
     
     // Headers
-    ctx.fillText("RK", colX[0], startY);
-    ctx.fillText("TEAM", colX[1], startY);
-    ctx.fillText("GP", colX[2], startY);
-    ctx.fillText("W", colX[3], startY);
-    ctx.fillText("L", colX[4], startY);
-    ctx.fillText("OTL", colX[5], startY); // New
-    ctx.fillText("SOW", colX[6], startY); // New
-    ctx.fillText("SOL", colX[7], startY); // New
-    
-    ctx.fillStyle = "#fff"; // Points Header Bright
-    ctx.fillText("PTS", colX[8], startY);
-    
-    ctx.fillStyle = "#888";
-    ctx.fillText("GF", colX[9], startY);
-    ctx.fillText("GA", colX[10], startY);
-
-    // Rows
-    ctx.font = "13px Monospace"; // Smaller font
-    
-    sorted.forEach((t, i) => {
-        const y = startY + 25 + (i * rowH);
-        if (y > H - 100) return; 
-
-        // Row Color: Alternate slightly for readability
-        if (i % 2 === 0) {
-            ctx.fillStyle = "rgba(255, 255, 255, 0.05)";
-            ctx.fillRect(100, y - 16, 750, rowH);
-        }
-
-        ctx.fillStyle = "#ccc"; // Standard Text Color (Off-white)
-        
-        ctx.fillText((i + 1) + ".", colX[0], y);
-        ctx.fillText(t.name.substring(0, 20), colX[1], y);
-        
-        ctx.fillText(t.GP, colX[2], y);
-        ctx.fillText(t.W, colX[3], y);
-        ctx.fillText(t.L, colX[4], y);
-        ctx.fillText(t.OTL, colX[5], y); // New
-        ctx.fillText(t.SOW, colX[6], y); // New
-        ctx.fillText(t.SOL, colX[7], y); // New
-        
-        ctx.fillStyle = "#fff"; // Points Bright White
-        ctx.fillText(t.Pts, colX[8], y);
-        
-        ctx.fillStyle = "#888";
-        ctx.fillText(t.GF, colX[9], y);
-        ctx.fillText(t.GA, colX[10], y);
-    });
-
-    // 5. Footer (Active Match)
-    const idx = Tournament.currentMatchIndex;
-    const total = Tournament.matches.length;
-    
-    if (idx < total) {
-        const m = Tournament.matches[idx];
-        const hName = Strategies[m.home].code;
-        const aName = Strategies[m.away].code;
-        
-        // Footer Background
-        ctx.fillStyle = "#111";
-        ctx.fillRect(0, H - 60, W, 60);
-        ctx.strokeStyle = "#444";
-        ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(0, H-60); ctx.lineTo(W, H-60); ctx.stroke();
-
-        const footerY = H - 25;
-        
-        // Match Info
-        ctx.textAlign = "left";
-        ctx.font = "14px Arial";
-        ctx.fillStyle = "#666";
-        ctx.fillText(`MATCH ${idx+1} / ${total}`, 30, footerY);
-
-        // Score
-        ctx.textAlign = "center";
-        ctx.font = "bold 24px Arial";
-        ctx.fillStyle = "#fff";
-        ctx.fillText(`${hName}  ${scoreTeam0} - ${scoreTeam1}  ${aName}`, W/2, footerY + 8);
-        
-        // Time
-        ctx.textAlign = "right";
-        ctx.font = "14px Monospace";
-        ctx.fillStyle = "#888";
-        const pTxt = currentPeriod > 3 ? "OT" : "P" + currentPeriod;
-        ctx.fillText(`${pTxt} | ${Math.floor(timeRemaining)}s`, W - 30, footerY);
-    }
-}
-
-
-
-
-function drawTournamentResults() {
-    // 1. Clear Screen
-    ctx.fillStyle = "#111";
-    ctx.fillRect(0, 0, W, H);
-    
-    // 2. Draw Title
-    ctx.textAlign = "center";
-    ctx.fillStyle = "#fff";
-    ctx.font = "bold 40px Arial";
-    ctx.fillText("TOURNAMENT FINAL STANDINGS", W/2, 60);
-
-    // 3. Sort Standings
-    const sorted = Object.values(Tournament.standings).sort((a,b) => {
-        if (b.Pts !== a.Pts) return b.Pts - a.Pts;
-        if (b.W !== a.W) return b.W - a.W;
-        return (b.GF - b.GA) - (a.GF - a.GA);
-    });
-
-    // 4. Draw Table (Matching the Live View format)
-    const startY = 120;
-    const rowH = 25; // Compact rows
-    
-    // Column Positions: RK, TEAM, GP, W, L, OTL, SOW, SOL, PTS, GF, GA
-    const colX = [120, 180, 380, 430, 480, 530, 580, 630, 700, 760, 810]; 
-    
-    ctx.textAlign = "left";
-    ctx.font = "bold 14px Monospace";
-    ctx.fillStyle = "#888"; // Header Color
-    
-    // Draw Headers
     ctx.fillText("RK", colX[0], startY);
     ctx.fillText("TEAM", colX[1], startY);
     ctx.fillText("GP", colX[2], startY);
@@ -4955,26 +5005,30 @@ function drawTournamentResults() {
     ctx.fillText("SOW", colX[6], startY);
     ctx.fillText("SOL", colX[7], startY);
     
-    ctx.fillStyle = "#fff"; // Points Header Bright
+    ctx.fillStyle = "#fff"; 
     ctx.fillText("PTS", colX[8], startY);
     
     ctx.fillStyle = "#888";
     ctx.fillText("GF", colX[9], startY);
     ctx.fillText("GA", colX[10], startY);
+    
+    // New Headers
+    ctx.fillStyle = "#aaa";
+    ctx.fillText("SOGF", colX[11], startY);
+    ctx.fillText("SOGA", colX[12], startY);
 
-    // Draw Rows
-    ctx.font = "14px Monospace";
+    // Rows
+    ctx.font = "13px Monospace"; 
     
     sorted.forEach((t, i) => {
-        const y = startY + 30 + (i * rowH);
-        
-        // Row Color: Alternate slightly for readability
+        const y = startY + 25 + (i * rowH);
+        if (y > H - 100) return; 
+
         if (i % 2 === 0) {
             ctx.fillStyle = "rgba(255, 255, 255, 0.05)";
-            ctx.fillRect(100, y - 16, 750, rowH);
+            ctx.fillRect(60, y - 16, 900, rowH);
         }
 
-        // Text Color: Uniform Light Grey (Easier to read than team colors)
         ctx.fillStyle = "#ccc"; 
         
         ctx.fillText((i + 1) + ".", colX[0], y);
@@ -4987,20 +5041,68 @@ function drawTournamentResults() {
         ctx.fillText(t.SOW, colX[6], y);
         ctx.fillText(t.SOL, colX[7], y);
         
-        ctx.fillStyle = "#fff"; // Points Bright White
+        ctx.fillStyle = "#fff"; 
         ctx.fillText(t.Pts, colX[8], y);
         
         ctx.fillStyle = "#888";
         ctx.fillText(t.GF, colX[9], y);
         ctx.fillText(t.GA, colX[10], y);
+
+        // --- NEW: CALCULATE AVERAGES ---
+        const avgSOGF = (t.GP > 0) ? (t.totalSOGF / t.GP).toFixed(1) : "0.0";
+        const avgSOGA = (t.GP > 0) ? (t.totalSOGA / t.GP).toFixed(1) : "0.0";
+
+        ctx.fillStyle = "#aaa";
+        ctx.fillText(avgSOGF, colX[11], y);
+        ctx.fillText(avgSOGA, colX[12], y);
     });
 
-    ctx.fillStyle = "#666";
-    ctx.textAlign = "center";
-    ctx.font = "16px Arial";
-    ctx.fillText("Press ESC to return to Menu", W/2, H - 40);
+    // 5. Footer (Active Match)
+    const idx = Tournament.currentMatchIndex;
+    const total = Tournament.matches.length;
+    
+    if (idx < total) {
+        const m = Tournament.matches[idx];
+        const hName = Strategies[m.home].code;
+        const aName = Strategies[m.away].code;
+        
+        ctx.fillStyle = "#111";
+        ctx.fillRect(0, H - 60, W, 60);
+        ctx.strokeStyle = "#444";
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(0, H-60); ctx.lineTo(W, H-60); ctx.stroke();
+
+        const footerY = H - 25;
+        
+        ctx.textAlign = "left";
+        ctx.font = "14px Arial";
+        ctx.fillStyle = "#666";
+        ctx.fillText(`MATCH ${idx+1} / ${total}`, 30, footerY);
+
+        ctx.textAlign = "center";
+        ctx.font = "bold 24px Arial";
+        ctx.fillStyle = "#fff";
+        ctx.fillText(`${hName}  ${scoreTeam0} - ${scoreTeam1}  ${aName}`, W/2, footerY + 8);
+        
+        ctx.textAlign = "right";
+        ctx.font = "14px Monospace";
+        ctx.fillStyle = "#888";
+        const pTxt = currentPeriod > 3 ? "OT" : "P" + currentPeriod;
+        ctx.fillText(`${pTxt} | ${Math.floor(timeRemaining)}s`, W - 30, footerY);
+    }
 }
 
+function drawTournamentResults() {
+    // Re-use logic from Live Status but center it for final screen
+    renderTournamentStatus();
+    
+    ctx.save();
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 16px Arial";
+    ctx.fillText("TOURNAMENT COMPLETE - Press ESC to Return", W/2, H - 85); // Above footer
+    ctx.restore();
+}
 
 
 

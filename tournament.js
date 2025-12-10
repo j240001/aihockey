@@ -1,5 +1,5 @@
 // =========================================================
-// TOURNAMENT ENGINE (Updated Stats)
+// TOURNAMENT ENGINE (Strict 82-Game Season)
 // =========================================================
 
 const Tournament = {
@@ -12,7 +12,6 @@ const Tournament = {
     // --- CONFIGURATION ---
     watchMode: false,    
     speedMult: 100,     
-    rounds: 27, 
     
     // 1. SETUP
     init: function() {
@@ -24,7 +23,7 @@ const Tournament = {
 
         const keys = Object.keys(Strategies);
         
-        // Initialize Standings (Added SOW, SOL, OTL)
+        // Initialize Standings
         keys.forEach(k => {
             const code = Strategies[k].code || "UNK";
             this.standings[k] = { 
@@ -32,9 +31,11 @@ const Tournament = {
                 name: Strategies[k].teamName || Strategies[k].name,
                 code: code,
                 GP:0, 
-                W:0, L:0, OTL:0, // Standard Record
-                SOW:0, SOL:0,    // Shootout specific
-                GF:0, GA:0, Pts:0 
+                W:0, L:0, OTL:0, 
+                SOW:0, SOL:0,    
+                GF:0, GA:0, Pts:0,
+                totalSOGF: 0, 
+                totalSOGA: 0  
             };
         });
 
@@ -43,22 +44,37 @@ const Tournament = {
         if (teams.length % 2 !== 0) teams.push("BYE");
         
         const numTeams = teams.length;
-        const numRounds = numTeams - 1; 
+        const gamesPerCycle = numTeams - 1; 
         const half = numTeams / 2;
 
-        for (let season = 0; season < this.rounds; season++) {
+        // Auto-Calculate Season Length
+        const TARGET_GAMES = 82;
+        
+        // 1. Force OVER-generation (Round Up)
+        // If we need 7.4 loops, this forces 8 loops so we have enough matches.
+        let seasonLoops = Math.ceil(TARGET_GAMES / gamesPerCycle);
+        if (seasonLoops < 1) seasonLoops = 1;
+
+        console.log(`📅 SEASON SETUP: ${numTeams} Slots. One cycle = ${gamesPerCycle} games.`);
+        console.log(`🔄 GENERATING: ${seasonLoops} cycles to ensure coverage.`);
+
+        for (let season = 0; season < seasonLoops; season++) {
             let currentTeams = [...teams]; 
-            for (let r = 0; r < numRounds; r++) {
+            
+            for (let r = 0; r < gamesPerCycle; r++) {
                 let roundMatches = [];
                 for (let i = 0; i < half; i++) {
                     const t1 = currentTeams[i];
                     const t2 = currentTeams[numTeams - 1 - i];
                     if (t1 === "BYE" || t2 === "BYE") continue;
+                    
                     if (season % 2 === 0) roundMatches.push({ home: t1, away: t2 });
                     else                  roundMatches.push({ home: t2, away: t1 });
                 }
+                
                 roundMatches.sort(() => Math.random() - 0.5);
                 this.matches.push(...roundMatches);
+                
                 const fixed = currentTeams[0];
                 const tail = currentTeams.slice(1);
                 tail.unshift(tail.pop()); 
@@ -66,7 +82,18 @@ const Tournament = {
             }
         }
 
-        console.log(`🏆 TOURNAMENT INITIALIZED: ${this.matches.length} Matches.`);
+        // 2. TRIM TO EXACT LENGTH
+        // Total Matches = (Number of Real Teams * 82) / 2
+        // Example: 12 Teams * 82 Games = 984 Team-Games / 2 = 492 Matches
+        const realTeamCount = keys.length;
+        const totalMatchesNeeded = Math.ceil((realTeamCount * TARGET_GAMES) / 2);
+
+        if (this.matches.length > totalMatchesNeeded) {
+            console.log(`✂️ TRIMMING: Generated ${this.matches.length}, cutting to ${totalMatchesNeeded}.`);
+            this.matches = this.matches.slice(0, totalMatchesNeeded);
+        }
+
+        console.log(`🏆 SEASON READY: ${this.matches.length} Total Matches (${TARGET_GAMES}/team).`);
         this.startNextMatch();
     },
 
@@ -118,7 +145,7 @@ const Tournament = {
                         if (isSuddenDeathGoal) {
                              if (lastGoalTeam === 0) scoreTeam0++;
                              if (lastGoalTeam === 1) scoreTeam1++;
-                             this.recordResult(false); // OT Goal (Not Shootout)
+                             this.recordResult(false); 
                              return;
                         } else { doGoalReset(); }
                     }
@@ -169,7 +196,6 @@ const Tournament = {
                         if (!this.watchMode) faceoffPauseUntil = 0; 
                     } else {
                         if (scoreTeam0 === scoreTeam1) {
-                            // Shootout Trigger (Period 6+)
                             if (currentPeriod >= 4) {
                                 this.resolveShootout();
                                 return;
@@ -179,7 +205,7 @@ const Tournament = {
                             startNextPeriod();
                             if (!this.watchMode) faceoffPauseUntil = 0;
                         } else {
-                            this.recordResult(false); // Regulation Win
+                            this.recordResult(false); 
                             return; 
                         }
                     }
@@ -189,7 +215,7 @@ const Tournament = {
             if (isSuddenDeathGoal) {
                 if (lastGoalTeam === 0) scoreTeam0++;
                 if (lastGoalTeam === 1) scoreTeam1++;
-                this.recordResult(false); // OT Goal Win
+                this.recordResult(false); 
                 return;
             }
         }
@@ -210,7 +236,7 @@ const Tournament = {
             ctx.fillStyle = "#fff";
             ctx.font = "14px Arial";
             ctx.textAlign = "right";
-            ctx.fillText(`TOURNAMENT GAME ${this.currentMatchIndex + 1} / ${this.matches.length}`, W - 10, H - 10);
+            ctx.fillText(`GAME ${this.currentMatchIndex + 1} / ${this.matches.length}`, W - 10, H - 10);
             ctx.restore();
         } 
         else {
@@ -223,15 +249,15 @@ const Tournament = {
     // 4. RESOLVE SHOOTOUT
     resolveShootout: function() {
         if (Math.random() > 0.5) {
-            scoreTeam0++; // T0 Wins SO
+            scoreTeam0++; 
             this.recordResult(true);
         } else {
-            scoreTeam1++; // T1 Wins SO
+            scoreTeam1++; 
             this.recordResult(true);
         }
     },
 
-    // 5. RECORD STATS (Updated Logic)
+    // 5. RECORD STATS
     recordResult: function(isShootout) {
         const homeID = this.matches[this.currentMatchIndex].home;
         const awayID = this.matches[this.currentMatchIndex].away;
@@ -242,25 +268,36 @@ const Tournament = {
         hStats.GP++; 
         aStats.GP++; 
         
-        // Goals are recorded including OT/SO goals
         hStats.GF += scoreTeam0; hStats.GA += scoreTeam1;
         aStats.GF += scoreTeam1; aStats.GA += scoreTeam0;
+
+        // --- SHOT TRACKING ---
+        const goalie0 = players.find(p => p.team === 0 && p.type === "goalie");
+        const goalie1 = players.find(p => p.team === 1 && p.type === "goalie");
+        const saves0 = goalie0 ? goalie0.saves : 0;
+        const saves1 = goalie1 ? goalie1.saves : 0;
+
+        const sog0 = scoreTeam0 + saves1;
+        const sog1 = scoreTeam1 + saves0;
+
+        hStats.totalSOGF += sog0;
+        hStats.totalSOGA += sog1; 
+
+        aStats.totalSOGF += sog1;
+        aStats.totalSOGA += sog0;
+        // ---------------------
 
         const isOT = (currentPeriod > 3 && !isShootout);
 
         // --- TEAM 0 WINS ---
         if (scoreTeam0 > scoreTeam1) {
-            // Winner gets 2 points regardless of Reg/OT/SO
             hStats.W++; 
             hStats.Pts += 2;
 
             if (isShootout) {
                 hStats.SOW++;
                 aStats.SOL++;
-                aStats.Pts += 1; // Loser gets 1 pt
-                // Note: L is usually Regulation Loss only in NHL stats, 
-                // but some leagues count OT/SO loss as L column too. 
-                // Standard: W-L-OTL. 
+                aStats.Pts += 1; 
                 aStats.OTL++; 
             } 
             else if (isOT) {
@@ -268,7 +305,6 @@ const Tournament = {
                 aStats.Pts += 1;
             } 
             else {
-                // Regulation Loss
                 aStats.L++;
             }
         } 
@@ -302,7 +338,7 @@ const Tournament = {
     endTournament: function() {
         this.active = false;
         gameState = "tournament_over";
-        console.log("🏆 TOURNAMENT COMPLETE");
+        console.log("🏆 SEASON COMPLETE");
         console.table(this.standings);
         if (typeof loop === "function") requestAnimationFrame(loop);
     }

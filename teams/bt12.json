@@ -1,0 +1,172 @@
+{
+  "c": [
+    {
+      "type": "Selector",
+      "cat": "struct",
+      "children": [
+        { "type": "Sequence", "cat": "struct", "children": [
+          { "type": "condTeammatesOffside", "cat": "cond" },
+          { "type": "actTagUp_T1", "cat": "act" }
+        ]},
+        { "type": "Sequence", "cat": "struct", "children": [
+          { "type": "condHasPuck", "cat": "cond" },
+          { "type": "Selector", "cat": "struct", "children": [
+            { "type": "Sequence", "cat": "struct", "children": [
+              { "type": "condPuckInDefZone", "cat": "cond" },
+              { "type": "Selector", "cat": "struct", "children": [
+                { "type": "Sequence", "cat": "struct", "children": [
+                  { "type": "condHasBreakoutPass", "cat": "cond" },
+                  { "type": "actExecutePass", "cat": "act" }
+                ]},
+                { "type": "actDriveNet", "cat": "act" }
+              ]}
+            ]},
+            { "type": "Sequence", "cat": "struct", "children": [
+              { "type": "condInShotRange", "cat": "cond" },
+              { "type": "actShoot", "cat": "act" }
+            ]},
+            { "type": "actDriveNet", "cat": "act" }
+          ]}
+        ]},
+        { "type": "Sequence", "cat": "struct", "children": [
+          { "type": "condLoosePuck", "cat": "cond" },
+          { "type": "condAmIClosest", "cat": "cond" },
+          { "type": "actSmartIntercept", "cat": "act" }
+        ]},
+        { "type": "actChill", "cat": "act" }
+      ]
+    }
+  ],
+  "lw": [
+    {
+      "type": "Selector",
+      "cat": "struct",
+      "children": [
+        { "type": "Sequence", "cat": "struct", "children": [
+          { "type": "condTeammatesOffside", "cat": "cond" },
+          { "type": "actTagUp_T1", "cat": "act" }
+        ]},
+        { "type": "Sequence", "cat": "struct", "children": [
+          { "type": "condHasPuck", "cat": "cond" },
+          { "type": "Selector", "cat": "struct", "children": [
+            { "type": "Sequence", "cat": "struct", "children": [
+              { "type": "condInShotRange", "cat": "cond" },
+              { "type": "actShoot", "cat": "act" }
+            ]},
+            { "type": "actDriveNet", "cat": "act" }
+          ]}
+        ]},
+        { "type": "Sequence", "cat": "struct", "children": [
+          { "type": "condLoosePuck", "cat": "cond" },
+          { "type": "condAmIClosest", "cat": "cond" },
+          { "type": "actSmartIntercept", "cat": "act" }
+        ]},
+        { "type": "actHoverBlueLine", "cat": "act" }
+      ]
+    }
+  ],
+  "rw": [
+    {
+      "type": "Selector",
+      "cat": "struct",
+      "children": [
+        { "type": "Sequence", "cat": "struct", "children": [
+          { "type": "condTeammatesOffside", "cat": "cond" },
+          { "type": "actTagUp_T1", "cat": "act" }
+        ]},
+        { "type": "Sequence", "cat": "struct", "children": [
+          { "type": "condHasPuck", "cat": "cond" },
+          { "type": "Selector", "cat": "struct", "children": [
+            { "type": "Sequence", "cat": "struct", "children": [
+              { "type": "condInShotRange", "cat": "cond" },
+              { "type": "actShoot", "cat": "act" }
+            ]},
+            { "type": "actDriveNet", "cat": "act" }
+          ]}
+        ]},
+        { "type": "Sequence", "cat": "struct", "children": [
+          { "type": "condLoosePuck", "cat": "cond" },
+          { "type": "condAmIClosest", "cat": "cond" },
+          { "type": "actSmartIntercept", "cat": "act" }
+        ]},
+        { "type": "actHoverBlueLine", "cat": "act" }
+      ]
+    }
+  ],
+  "ld": [
+    {
+      "type": "Selector",
+      "cat": "struct",
+      "children": [
+        { "type": "Sequence", "cat": "struct", "children": [
+          { "type": "condTeammatesOffside", "cat": "cond" },
+          { "type": "actTagUp_T1", "cat": "act" }
+        ]},
+        { "type": "Sequence", "cat": "struct", "children": [
+          { "type": "condHasPuck", "cat": "cond" },
+          { "type": "Selector", "cat": "struct", "children": [
+            { "type": "Sequence", "cat": "struct", "children": [
+              { "type": "condPuckInDefZone", "cat": "cond" },
+              { "type": "Selector", "cat": "struct", "children": [
+                { "type": "Sequence", "cat": "struct", "children": [
+                  { "type": "condHasBreakoutPass", "cat": "cond" },
+                  { "type": "actExecutePass", "cat": "act" }
+                ]},
+                { "type": "actDriveNet", "cat": "act" }
+              ]}
+            ]},
+            { "type": "Sequence", "cat": "struct", "children": [
+              { "type": "condInShotRange", "cat": "cond" },
+              { "type": "actShoot", "cat": "act" }
+            ]},
+            { "type": "actHoverBlueLine", "cat": "act" }
+          ]}
+        ]},
+        { "type": "Sequence", "cat": "struct", "children": [
+          { "type": "condLoosePuck", "cat": "cond" },
+          { "type": "condPuckInDefZone", "cat": "cond" },
+          { "type": "actSmartIntercept", "cat": "act" }
+        ]},
+        { "type": "actHoverBlueLine", "cat": "act" }
+      ]
+    }
+  ],
+  "rd": [
+    {
+      "type": "Selector",
+      "cat": "struct",
+      "children": [
+        { "type": "Sequence", "cat": "struct", "children": [
+          { "type": "condTeammatesOffside", "cat": "cond" },
+          { "type": "actTagUp_T1", "cat": "act" }
+        ]},
+        { "type": "Sequence", "cat": "struct", "children": [
+          { "type": "condHasPuck", "cat": "cond" },
+          { "type": "Selector", "cat": "struct", "children": [
+            { "type": "Sequence", "cat": "struct", "children": [
+              { "type": "condPuckInDefZone", "cat": "cond" },
+              { "type": "Selector", "cat": "struct", "children": [
+                { "type": "Sequence", "cat": "struct", "children": [
+                  { "type": "condHasBreakoutPass", "cat": "cond" },
+                  { "type": "actExecutePass", "cat": "act" }
+                ]},
+                { "type": "actDriveNet", "cat": "act" }
+              ]}
+            ]},
+            { "type": "Sequence", "cat": "struct", "children": [
+              { "type": "condInShotRange", "cat": "cond" },
+              { "type": "actShoot", "cat": "act" }
+            ]},
+            { "type": "actHoverBlueLine", "cat": "act" }
+          ]}
+        ]},
+        { "type": "Sequence", "cat": "struct", "children": [
+          { "type": "condLoosePuck", "cat": "cond" },
+          { "type": "condPuckInDefZone", "cat": "cond" },
+          { "type": "actSmartIntercept", "cat": "act" }
+        ]},
+        { "type": "actHoverBlueLine", "cat": "act" }
+      ]
+    }
+  ]
+}

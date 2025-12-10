@@ -47,6 +47,7 @@
 <script src="teams/bt9.js"></script>
 <script src="teams/bt10.js"></script>
 <script src="teams/bt11.js"></script>
+<script src="teams/bt12.js"></script>
 
 
 
@@ -62,8 +63,10 @@
 // bt8 = MTL
 // bt9 = EDM
 // bt10 = FLA
+// bt11 = STL
+// bt12 = MOS (moscow red army)
 
-// This version 2410 improves net bugs and checked/hit skaters animation (cw and ccw now)
+// This version 2412 attempts to add a feature to remove or add skaters during a game to test short-handed play
 
 
 
@@ -543,7 +546,12 @@ let replayIndex = 0;            // Current frame of replay
 let replayFinishedCallback = null; // Function to run after replay ends
 
 
-
+// =========================================================
+// PENDING ROSTER CHANGES (Safe Mode)
+// =========================================================
+let pendingRosterChanges = { team0: 0, team1: 0 }; // Stores +1, -1, etc.
+const MAX_SKATERS = 5;
+const MIN_SKATERS = 0;
 
 
 
@@ -761,6 +769,56 @@ document.addEventListener("keydown", (e) => {
 
 
 
+// =========================================================
+// ROSTER CONTROL INPUTS (Keys 1, 2, 9, 0)
+// =========================================================
+document.addEventListener("keydown", (e) => {
+    // Only allow these controls during active game modes
+    if (gameState === "playing" || gameState === "practice" || gameState === "training") {
+
+        // Count current actual skaters so we know limits
+        const t0Count = players.filter(p => p.team === 0 && p.type === "skater").length;
+        const t1Count = players.filter(p => p.team === 1 && p.type === "skater").length;
+
+        // --- TEAM 0 (BLUE) ---
+        // Key 1: Queue Removal (-1 Player)
+        if (e.key === "1") {
+            // Check: (Current Count) + (Pending Changes) - 1 must be > Min
+            if (t0Count + pendingRosterChanges.team0 > MIN_SKATERS) {
+                pendingRosterChanges.team0--;
+                console.log("Queueing Blue Removal. Pending:", pendingRosterChanges.team0);
+            }
+        }
+        // Key 2: Queue Add (+1 Player)
+        if (e.key === "2") {
+            // Check: (Current Count) + (Pending Changes) + 1 must be < Max
+            if (t0Count + pendingRosterChanges.team0 < MAX_SKATERS) {
+                pendingRosterChanges.team0++;
+                console.log("Queueing Blue Add. Pending:", pendingRosterChanges.team0);
+            }
+        }
+
+        // --- TEAM 1 (RED) ---
+        // Key 9: Queue Removal (-1 Player)
+        if (e.key === "9") {
+            if (t1Count + pendingRosterChanges.team1 > MIN_SKATERS) {
+                pendingRosterChanges.team1--;
+                console.log("Queueing Red Removal. Pending:", pendingRosterChanges.team1);
+            }
+        }
+        // Key 0: Queue Add (+1 Player)
+        if (e.key === "0") {
+            if (t1Count + pendingRosterChanges.team1 < MAX_SKATERS) {
+                pendingRosterChanges.team1++;
+                console.log("Queueing Red Add. Pending:", pendingRosterChanges.team1);
+            }
+        }
+    }
+});
+
+
+
+
 const W = canvas.width;
 const H = canvas.height;
 
@@ -837,6 +895,87 @@ function lateralClear(p, dir) {
     return true;
 }
 
+
+
+// Re-using the roster positions for spawn coordinates
+const ROSTER_POSITIONS = [
+    { role: "C",  x: 20, y: 0 },
+    { role: "RW", x: 20, y: 55 },   
+    { role: "LD", x: 100, y: -55 }, 
+    { role: "LW", x: 20, y: -55 },  
+    { role: "RD", x: 100, y: 55 }   
+];
+
+function applyPendingRosterChanges() {
+    // 1. Process Team 0
+    while (pendingRosterChanges.team0 !== 0) {
+        if (pendingRosterChanges.team0 > 0) {
+            addSkater(0);
+            pendingRosterChanges.team0--;
+        } else {
+            removeSkater(0);
+            pendingRosterChanges.team0++;
+        }
+    }
+
+    // 2. Process Team 1
+    while (pendingRosterChanges.team1 !== 0) {
+        if (pendingRosterChanges.team1 > 0) {
+            addSkater(1);
+            pendingRosterChanges.team1--;
+        } else {
+            removeSkater(1);
+            pendingRosterChanges.team1++;
+        }
+    }
+    
+    // 3. Re-assign roles immediately after changes
+    assignRolesForTeam(0);
+    assignRolesForTeam(1);
+}
+
+function addSkater(teamId) {
+    const currentSkaters = players.filter(p => p.team === teamId && p.type === "skater");
+    if (currentSkaters.length >= MAX_SKATERS) return;
+
+    const newIndex = currentSkaters.length;
+    const def = ROSTER_POSITIONS[newIndex];
+    
+    // Generate Unique ID
+    let maxId = 0;
+    players.forEach(p => maxId = Math.max(maxId, p.id));
+    
+    const p = makePlayer({
+        id: maxId + 1, 
+        team: teamId, 
+        type: "skater", 
+        isHuman: false,
+        x: (teamId === 0) ? RX - def.x : RX + def.x, 
+        y: RY + def.y, 
+        angle: (teamId === 0) ? 0 : Math.PI
+    });
+
+    p.role = def.role; 
+    p.homePos = { x: p.x, y: p.y }; 
+    initPlayerBrain(p);
+    players.push(p);
+}
+
+function removeSkater(teamId) {
+    const currentSkaters = players.filter(p => p.team === teamId && p.type === "skater");
+    if (currentSkaters.length <= MIN_SKATERS) return;
+
+    const victim = currentSkaters[currentSkaters.length - 1];
+    
+    // Safety: Release puck if held
+    if (puck.ownerId === victim.id) {
+        puck.ownerId = null;
+        puck.vx = 0; puck.vy = 0;
+    }
+
+    const idx = players.indexOf(victim);
+    if (idx > -1) players.splice(idx, 1);
+}
 
 
 
@@ -3470,6 +3609,12 @@ function updateAISkater(p) {
         d = { tx: p.x, ty: p.y, action: "none" };
     }
 
+    // This catches ANY strategy returning null, undefined, or "FAILURE"
+    if (!d || typeof d.tx === 'undefined') {
+        d = { tx: p.x, ty: p.y, action: "none" };
+    }
+    // *******************************
+
     // =========================================================
     // *** BRAIN STEM OVERRIDE: ANTI-CAMPING & DELAYED OFFSIDE ***
     // =========================================================
@@ -4392,6 +4537,29 @@ function drawBroadcastScoreboard() {
     ctx.fillText(sog1, centerX + 35, bottomCenterY); 
 
     ctx.restore();
+
+
+
+        // Add this inside drawScoreboard or drawBroadcastScoreboard
+    if (pendingRosterChanges.team0 !== 0 || pendingRosterChanges.team1 !== 0) {
+        ctx.save();
+        ctx.font = "bold 16px Arial";
+        ctx.fillStyle = "#ffff00"; // Yellow warning text
+        ctx.textAlign = "center";
+        
+        let msg = "ROSTER CHANGE PENDING (WAIT FOR WHISTLE)";
+        // Draw it just below the scoreboard
+        ctx.fillText(msg, W/2, 110); 
+        
+        // Optional: Show specific details
+        let detail = "";
+        if (pendingRosterChanges.team0 !== 0) detail += `Blue: ${pendingRosterChanges.team0 > 0 ? '+' : ''}${pendingRosterChanges.team0} `;
+        if (pendingRosterChanges.team1 !== 0) detail += `Red: ${pendingRosterChanges.team1 > 0 ? '+' : ''}${pendingRosterChanges.team1}`;
+        
+        ctx.font = "12px Arial";
+        ctx.fillText(detail, W/2, 130);
+        ctx.restore();
+    }
 }
 
 
@@ -4587,6 +4755,9 @@ function resetAfterGoal(scoringTeam) {
 
 
 function doFaceoffReset() {
+
+    applyPendingRosterChanges();
+
     puck.ownerId = null;
     puck.vx = 0;
     puck.vy = 0;
