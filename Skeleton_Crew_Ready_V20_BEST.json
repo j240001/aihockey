@@ -1,0 +1,1164 @@
+{
+  "name": "Skeleton Crew Ready",
+  "code": "SKEL",
+  "colors": {
+    "main": "#444444",
+    "secondary": "#aaaaaa"
+  },
+  "c": [
+    {
+      "type": "Selector",
+      "cat": "struct",
+      "children": [
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condInShotRange",
+              "cat": "cond"
+            },
+            {
+              "type": "actShoot",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInOffZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actDriveNet",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInNeuZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actExecuteCarry",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInDefZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actExecutePass",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condOppHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condInShotRange",
+              "cat": "cond"
+            },
+            {
+              "type": "actDefendHome",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condOppHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInDefZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actDefendHome",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condOppHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInNeuZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actAggressiveGap",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condOppHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInOffZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actSmartIntercept",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condTeamHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInOffZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actDriveNet",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condTeamHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInNeuZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actSupportPosition",
+              "cat": "act",
+              "offsetx": "0",
+              "offsety": "50"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condTeamHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInDefZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actSupportPosition",
+              "cat": "act",
+              "offsetx": "0",
+              "offsety": "0"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condLoosePuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condAmIClosest",
+              "cat": "cond"
+            },
+            {
+              "type": "actSmartIntercept",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condLoosePuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInDefZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actDefendHome",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condLoosePuck",
+              "cat": "cond"
+            },
+            {
+              "type": "actChill",
+              "cat": "act"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "lw": [
+    {
+      "type": "Selector",
+      "cat": "struct",
+      "children": [
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condInShotRange",
+              "cat": "cond"
+            },
+            {
+              "type": "actShoot",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInOffZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actExecutePass",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInNeuZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actExecuteCarry",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInDefZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actExecutePass",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condOppHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInDefZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actHoverBlueLine",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condOppHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInNeuZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actDriveNet",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condOppHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInOffZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actAggressiveGap",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condTeamHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInOffZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actSupportPosition",
+              "cat": "act",
+              "offsetx": "-20",
+              "offsety": "-50"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condTeamHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInNeuZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actSupportPosition",
+              "cat": "act",
+              "offsetx": "-20",
+              "offsety": "-50"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condTeamHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInDefZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actSupportPosition",
+              "cat": "act",
+              "offsetx": -30,
+              "offsety": -70
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condLoosePuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condAmIClosest",
+              "cat": "cond"
+            },
+            {
+              "type": "actSmartIntercept",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condLoosePuck",
+              "cat": "cond"
+            },
+            {
+              "type": "actHoverBlueLine",
+              "cat": "act"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "rw": [
+    {
+      "type": "Selector",
+      "cat": "struct",
+      "children": [
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condInShotRange",
+              "cat": "cond"
+            },
+            {
+              "type": "actShoot",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInOffZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actDriveNet",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInNeuZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actExecuteCarry",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInDefZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actExecutePass",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condOppHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInDefZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actHoverBlueLine",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condOppHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInNeuZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actChill",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condOppHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInOffZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actAggressiveGap",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condTeamHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInOffZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actSupportPosition",
+              "cat": "act",
+              "offsetx": "-20",
+              "offsety": "50"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condTeamHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInNeuZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actSupportPosition",
+              "cat": "act",
+              "offsetx": "-20",
+              "offsety": "50"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condTeamHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInDefZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actSupportPosition",
+              "cat": "act",
+              "offsetx": "-20",
+              "offsety": "50"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condLoosePuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condAmIClosest",
+              "cat": "cond"
+            },
+            {
+              "type": "actSmartIntercept",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condLoosePuck",
+              "cat": "cond"
+            },
+            {
+              "type": "actHoverBlueLine",
+              "cat": "act"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "ld": [
+    {
+      "type": "Selector",
+      "cat": "struct",
+      "children": [
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condInShotRange",
+              "cat": "cond"
+            },
+            {
+              "type": "actShoot",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInOffZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actExecutePass",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInNeuZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actExecutePass",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInDefZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actExecuteCarry",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condOppHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInDefZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actDefendHome",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condOppHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInNeuZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actAggressiveGap",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condOppHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInOffZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actHoverBlueLine",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condTeamHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInOffZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actHoverBlueLine",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condTeamHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInNeuZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actSafetyPosition",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condTeamHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInDefZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actSupportPosition",
+              "cat": "act",
+              "offsetx": "-20",
+              "offsety": "-30"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condLoosePuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condAmIClosest",
+              "cat": "cond"
+            },
+            {
+              "type": "actSmartIntercept",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condLoosePuck",
+              "cat": "cond"
+            },
+            {
+              "type": "actDefendHome",
+              "cat": "act"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "rd": [
+    {
+      "type": "Selector",
+      "cat": "struct",
+      "children": [
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condInShotRange",
+              "cat": "cond"
+            },
+            {
+              "type": "actShoot",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInOffZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actExecutePass",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInNeuZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actExecutePass",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInDefZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actExecuteCarry",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condOppHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInDefZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actDefendHome",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condOppHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInNeuZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actAggressiveGap",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condOppHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInOffZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actHoverBlueLine",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condTeamHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInOffZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actHoverBlueLine",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condTeamHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInNeuZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actSafetyPosition",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condTeamHasPuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condPuckInDefZone",
+              "cat": "cond"
+            },
+            {
+              "type": "actSupportPosition",
+              "cat": "act",
+              "offsetx": "-20",
+              "offsety": "30"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condLoosePuck",
+              "cat": "cond"
+            },
+            {
+              "type": "condAmIClosest",
+              "cat": "cond"
+            },
+            {
+              "type": "actSmartIntercept",
+              "cat": "act"
+            }
+          ]
+        },
+        {
+          "type": "Sequence",
+          "cat": "struct",
+          "children": [
+            {
+              "type": "condLoosePuck",
+              "cat": "cond"
+            },
+            {
+              "type": "actDefendHome",
+              "cat": "act"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
