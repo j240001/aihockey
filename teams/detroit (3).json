@@ -1,10 +1,4 @@
 {
-  "name": "Jets",
-  "code": "WPG",
-  "colors": {
-    "main": "#5c77ff",
-    "secondary": "#001cf0"
-  },
   "c": [
     {
       "type": "Selector",
@@ -829,7 +823,7 @@
               "cat": "cond"
             },
             {
-              "type": "actSmartIntercept",
+              "type": "actDefendHome",
               "cat": "act"
             }
           ]

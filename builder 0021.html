@@ -660,40 +660,67 @@ function serializeNode(el) {
 
 function saveLayout() {
     const layout = { 
+        // 1. SAVE TEAM IDENTITY
+        name: document.getElementById('metaTeamName').value || "Custom Team",
+        code: (document.getElementById('metaCode').value || "CST").toUpperCase(),
+        colors: {
+            main: document.getElementById('metaColor1').value,
+            secondary: document.getElementById('metaColor2').value
+        },
+        
+        // 2. SAVE STRATEGY TREES
         c: getColumnData('rootC'), 
         lw: getColumnData('rootLW'), 
         rw: getColumnData('rootRW'), 
         ld: getColumnData('rootLD'),
         rd: getColumnData('rootRD') 
     };
+
     const blob = new Blob([JSON.stringify(layout, null, 2)], {type: "application/json"});
-    let name = document.getElementById('fileName').value || "strategy";
-    if (!name.endsWith('.json')) name += ".json";
+    let fileName = document.getElementById('fileName').value || "strategy";
+    if (!fileName.endsWith('.json')) fileName += ".json";
+    
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = name; 
+    a.download = fileName; 
     a.click();
 }
+
+
 
 function getColumnData(id) {
     return Array.from(document.getElementById(id).children).filter(c => c.classList.contains('node')).map(serializeNode);
 }
 
+
 function triggerLoad() { document.getElementById('fileInput').click(); }
+
 
 function loadLayout(input) {
     const file = input.files[0];
     if (!file) return;
     const reader = new FileReader();
+    
     reader.onload = function(e) {
         try {
             const layout = JSON.parse(e.target.result);
+            
+            // 1. LOAD TEAM IDENTITY (If it exists)
+            if (layout.name) document.getElementById('metaTeamName').value = layout.name;
+            if (layout.code) document.getElementById('metaCode').value = layout.code;
+            if (layout.colors) {
+                document.getElementById('metaColor1').value = layout.colors.main;
+                document.getElementById('metaColor2').value = layout.colors.secondary;
+            }
+
+            // 2. LOAD TREES
             document.getElementById('rootC').innerHTML = "";
             document.getElementById('rootLW').innerHTML = "";
             document.getElementById('rootRW').innerHTML = "";
             document.getElementById('rootLD').innerHTML = "";
             document.getElementById('rootRD').innerHTML = "";
             
+            // Handle Legacy Format vs New Format
             if(layout.attacker) { 
                 rebuildColumn('rootC', layout.attacker);
                 rebuildColumn('rootLW', layout.winger);
@@ -705,11 +732,13 @@ function loadLayout(input) {
                 rebuildColumn('rootLD', layout.ld);
                 rebuildColumn('rootRD', layout.rd);
             }
-        } catch(err) { alert("Error: " + err); }
+        } catch(err) { alert("Error loading file: " + err); }
     };
     reader.readAsText(file);
     input.value = "";
 }
+
+
 
 function rebuildColumn(rootId, nodesData) {
     const originalSelection = selectedBlockId;
@@ -869,7 +898,8 @@ function exportBT() {
     const condAmIClosest = new ConditionNode(bb => {
         let c = null, d = 9999;
         for (let m of players) {
-            if (m.team === bb.p.team) {
+            // FIX: Added "&& m.type === 'skater'" to ignore the goalie
+            if (m.team === bb.p.team && m.type === 'skater') { 
                 let dist = Math.hypot(m.x - puck.x, m.y - puck.y);
                 if (dist < d) { d = dist; c = m; }
             }

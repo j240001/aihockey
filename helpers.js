@@ -1411,3 +1411,33 @@ function offensiveZoneAllowed(p) {
         return (puckX < blueLeft);
     }
 }
+
+
+
+// =========================================================
+// SHARED BLACKBOARD BUILDER (Required for Interpreter)
+// =========================================================
+function makeBB(p) {
+    const safeRX = (typeof RX !== 'undefined') ? RX : 500;
+    const safeGoal1 = (typeof goal1 !== 'undefined') ? goal1 : 175;
+    const safeGoal2 = (typeof goal2 !== 'undefined') ? goal2 : 825;
+    const myGoalX = (p.team === 0 ? safeGoal1 : safeGoal2);
+    const enemyGoal = (p.team === 0 ? safeGoal2 : safeGoal1);
+    const forwardDir = (enemyGoal > myGoalX ? 1 : -1);
+    const carrier = getPlayerById(puck.ownerId);
+
+    return {
+        p, myGoalX, enemyGoal, forwardDir, safeRX,
+        hasPuck: (puck.ownerId === p.id),
+        loosePuck: (puck.ownerId === null),
+        oppHasPuck: (carrier && carrier.team !== p.team),
+        teamHasPuck: (carrier && carrier.team === p.team),
+        inShotRange: (Math.hypot(enemyGoal - p.x, RY - p.y) < 200),
+        puckInDefZone: (forwardDir === 1 ? puck.x < safeRX - 60 : puck.x > safeRX + 60),
+        puckInOffZone: (forwardDir === 1 ? puck.x > safeRX + 60 : puck.x < safeRX - 60),
+        puckInNeuZone: (Math.abs(puck.x - safeRX) <= 60),
+        // Simple prediction for BB usage
+        interceptPoint: { x: puck.x, y: puck.y }, 
+        carryTarget: null, passTarget: null
+    };
+}
