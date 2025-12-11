@@ -497,14 +497,14 @@ function handleTrainingInput(e) {
         if (trainingIndex === 4) {
             train_rounds += dir;
             if (train_rounds < 1) train_rounds = 1;
-            if (train_rounds > 20) train_rounds = 20;
+            if (train_rounds > 27) train_rounds = 27;
         }
         
         // Episodes (Index 5)
         if (trainingIndex === 5) {
-            train_episodes += (dir * 5); 
-            if (train_episodes < 10) train_episodes = 5;
-            if (train_episodes > 1000) train_episodes = 1000;
+            train_episodes += (dir * 10); 
+            if (train_episodes < 10) train_episodes = 10;
+            if (train_episodes > 2000) train_episodes = 2000;
         }
     }
 
@@ -727,14 +727,14 @@ function handleOptionsInput(e) {
 // =========================================================
 // GAME CLOCK AND SCORE GLOBALS
 // =========================================================
-const GAME_DURATION_SECONDS = 60; // seconds
+const GAME_DURATION_SECONDS = 180; // seconds
 let timeRemaining = GAME_DURATION_SECONDS;
 let lastGameTimeUpdate = performance.now();
 
 // MULTI-PERIOD SYSTEM
 let currentPeriod = 1;
 const TOTAL_PERIODS = 3;
-const PERIOD_LENGTH_SECONDS = 60; // same as GAME_DURATION_SECONDS
+const PERIOD_LENGTH_SECONDS = 180; // same as GAME_DURATION_SECONDS
 
 
 // ==========================================

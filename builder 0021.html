@@ -765,14 +765,20 @@ function buildCode(el, indent) {
     }
 
     if (type === "actSupportPosition") {
+        const ox = Number(el.dataset.offsetx) || 0;
+        const oy = Number(el.dataset.offsety) || 0;
+
         return `${pad}new ActionNode(bb => {
             const carrier = getPlayerById(puck.ownerId);
             if (!carrier) return { tx: bb.p.x, ty: bb.p.y, action:'none' };
-            const finalX = carrier.x + (bb.forwardDir * ${el.dataset.offsetx});
-            const finalY = (bb.p.y < RY) ? carrier.y - ${el.dataset.offsety} : carrier.y + ${el.dataset.offsety};
+
+            const finalX = carrier.x + (bb.forwardDir * ${ox});
+            const finalY = carrier.y + (${oy});
+
             return { tx: finalX, ty: finalY, action:'none' };
         })`;
     }
+
 
     if (type === "actAggressiveGap") {
         return `${pad}new ActionNode(bb => {
@@ -804,8 +810,10 @@ function buildCode(el, indent) {
     if (type === "actClearPuck") return `${pad}new ActionNode(bb => clearPuckDefensive(bb.p))`;
 
     if (type === "actSafetyPosition") {
+        const depth = Number(el.dataset.depth) || 120;
+
         return `${pad}new ActionNode(bb => ({
-            tx: bb.myGoalX + (bb.forwardDir * (${el.dataset.depth})),
+            tx: bb.myGoalX + (bb.forwardDir * ${depth}),
             ty: RY,
             action:'none'
         }))`;
