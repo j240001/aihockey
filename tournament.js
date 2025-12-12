@@ -45,7 +45,7 @@ const Tournament = {
         const numTeams = teams.length;
         const gamesPerCycle = numTeams - 1; 
         const half = numTeams / 2;
-        const TARGET_GAMES = 82;
+        const TARGET_GAMES = 16;
         let seasonLoops = Math.ceil(TARGET_GAMES / gamesPerCycle);
         if (seasonLoops < 1) seasonLoops = 1;
 
@@ -128,14 +128,32 @@ const Tournament = {
         if (!this.watchMode) faceoffPauseUntil = 0;
     },
 
-    // 2. VISUAL MATCH STARTER
+
+
+
+// 2. VISUAL MATCH STARTER
     startNextMatch: function() {
+        
+        // --- FIX 1: HANDLE END OF TOURNAMENT ---
         if (this.currentMatchIndex >= this.matches.length) {
-            this.endTournament();
+            console.log("🏆 TOURNAMENT COMPLETE");
+            
+            // 1. Mark tournament as inactive
+            this.active = false;
+            
+            // 2. FORCE the screen to switch to Standings
+            // This pulls the user away from the "Game Over" ice rink
+            gameState = "tournament"; 
+            
             return;
         }
+        // ---------------------------------------
+
         const match = this.matches[this.currentMatchIndex];
+        
+        // Ensure state is correct for the new match
         gameState = "tournament"; 
+        
         Team0_Strategy = Strategies[match.home];
         Team1_Strategy = Strategies[match.away];
         
@@ -151,9 +169,12 @@ const Tournament = {
         if (!this.isTrainingEpisode) {
             console.log(`\n⚔️ MATCH ${this.currentMatchIndex + 1}: ${Team0_Strategy.code} vs ${Team1_Strategy.code}`);
         }
+        
         fullGameReset(); 
         this.simLoop();
     },
+
+
 
     // 3. VISUAL LOOP
     simLoop: function() {
@@ -380,7 +401,11 @@ const Tournament = {
         }
     },
 
-    // 6. RECORD RESULT
+
+
+
+
+// 6. RECORD RESULT
     recordResult: function(isShootout) {
         if (this.currentMatchIndex >= this.matches.length) return;
 
@@ -392,6 +417,7 @@ const Tournament = {
         hStats.GF += scoreTeam0; hStats.GA += scoreTeam1;
         aStats.GF += scoreTeam1; aStats.GA += scoreTeam0;
 
+        // Track Goalie Stats
         const goalie0 = players.find(p => p.team === 0 && p.type === "goalie");
         const goalie1 = players.find(p => p.team === 1 && p.type === "goalie");
         const saves0 = goalie0 ? goalie0.saves : 0;
@@ -402,9 +428,10 @@ const Tournament = {
         hStats.totalSOGF += sog0; hStats.totalSOGA += sog1; 
         aStats.totalSOGF += sog1; aStats.totalSOGA += sog0;
 
+        // Training Stats Logic
         if (this.isTrainingEpisode) {
             let oppId = null;
-            let traineeWon = false;
+            let traineeWin = false;
             let traineeScore = 0, oppScore = 0;
             let traineeSOG = 0, oppSOG = 0;
             let isTraineeHome = false;
@@ -421,27 +448,25 @@ const Tournament = {
             }
 
             const isOT = (currentPeriod > 3 && !isShootout);
-            const traineeWin = (isTraineeHome && scoreTeam0 > scoreTeam1) || (!isTraineeHome && scoreTeam1 > scoreTeam0);
+            const traineeWon = (isTraineeHome && scoreTeam0 > scoreTeam1) || (!isTraineeHome && scoreTeam1 > scoreTeam0);
 
             if (oppId && this.matchupStats[oppId]) {
                 const ms = this.matchupStats[oppId];
                 ms.GP++;
-                ms.GF += traineeScore;
-                ms.GA += oppScore;
-                ms.SOGF += traineeSOG;
-                ms.SOGA += oppSOG;
+                ms.GF += traineeScore; ms.GA += oppScore;
+                ms.SOGF += traineeSOG; ms.SOGA += oppSOG;
 
-                if (traineeWin) {
+                if (traineeWon) {
                     ms.W++; ms.Pts += 2;
                 } else {
-                    if (isOT || isShootout) { ms.OTL++; ms.Pts += 1; ms.L++; }
+                    if (isOT || isShootout) { ms.OTL++; ms.Pts += 1; }
                     else { ms.L++; }
                 }
             }
         }
 
+        // Global Standings Logic
         const isOTGlobal = (currentPeriod > 3 && !isShootout);
-
         if (scoreTeam0 > scoreTeam1) {
             hStats.W++; hStats.Pts += 2;
             if (isShootout) { hStats.SOW++; aStats.SOL++; aStats.Pts += 1; aStats.OTL++; } 
@@ -456,11 +481,20 @@ const Tournament = {
 
         this.currentMatchIndex++;
 
-        if (gameState === "tournament" && !this.isWarping) {
+        // --- FIX 2: CHAIN REACTION LOGIC ---
+        // We use 'this.active' because gameState is currently 'gameover'
+        if (this.active && !this.isWarping) {
             const delay = (this.watchMode || !this.isTrainingEpisode) ? 2000 : 10;
             setTimeout(() => this.startNextMatch(), delay);
+        } else if (this.isWarping) {
+            this.startNextMatch();
         }
     },
+
+
+
+
+
 
     // 7. FINISH
     endTournament: function() {

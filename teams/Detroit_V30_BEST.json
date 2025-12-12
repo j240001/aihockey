@@ -540,7 +540,7 @@
               "cat": "cond"
             },
             {
-              "type": "actExecuteCarry",
+              "type": "actHoverBlueLine",
               "cat": "act"
             }
           ]
@@ -650,10 +650,8 @@
               "cat": "cond"
             },
             {
-              "type": "actSupportPosition",
-              "cat": "act",
-              "offsetx": -20,
-              "offsety": 50
+              "type": "actExecuteCarry",
+              "cat": "act"
             }
           ]
         },
@@ -672,8 +670,8 @@
             {
               "type": "actSupportPosition",
               "cat": "act",
-              "offsetx": -20,
-              "offsety": 50
+              "offsetx": -10,
+              "offsety": 30
             }
           ]
         },
@@ -1024,7 +1022,7 @@
               "cat": "cond"
             },
             {
-              "type": "actDefendHome",
+              "type": "actExecutePass",
               "cat": "act"
             }
           ]

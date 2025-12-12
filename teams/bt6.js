@@ -349,7 +349,7 @@
             new SequenceNode([
                 condOppHasPuck,
                 condPuckInNeuZone,
-                actDriveNet
+                actChill
             ]),
             new SequenceNode([
                 condOppHasPuck,
@@ -430,10 +430,7 @@
             new SequenceNode([
                 condOppHasPuck,
                 condPuckInDefZone,
-                new ActionNode(bb => {
-            const carrier = getPlayerById(puck.ownerId) || {x:puck.x, y:puck.y};
-            return getAggressiveGapTarget(bb.p, carrier, bb.myGoalX);
-        })
+                actDefendHome
             ]),
             new SequenceNode([
                 condOppHasPuck,
@@ -594,7 +591,7 @@
             "Jets",
             "WPG",
             think,
-            { main: "#6647ff", secondary: "#aaaaaa" }
+            { main: "#634efd", secondary: "#aaaaaa" }
         );
     }
 })();

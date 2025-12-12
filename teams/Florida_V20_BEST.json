@@ -1,5 +1,5 @@
 {
-  "name": "Detroit",
+  "name": "Florida",
   "c": [
     {
       "type": "Selector",
@@ -652,8 +652,8 @@
             {
               "type": "actSupportPosition",
               "cat": "act",
-              "offsetx": -20,
-              "offsety": 50
+              "offsetx": -40,
+              "offsety": 60
             }
           ]
         },
@@ -672,8 +672,8 @@
             {
               "type": "actSupportPosition",
               "cat": "act",
-              "offsetx": -20,
-              "offsety": 50
+              "offsetx": -10,
+              "offsety": 30
             }
           ]
         },
@@ -730,7 +730,7 @@
               "cat": "cond"
             },
             {
-              "type": "actShoot",
+              "type": "actGoBackdoor",
               "cat": "act"
             }
           ]
@@ -970,7 +970,7 @@
               "cat": "cond"
             },
             {
-              "type": "actExecutePass",
+              "type": "actSmartIntercept",
               "cat": "act"
             }
           ]

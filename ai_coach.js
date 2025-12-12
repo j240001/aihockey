@@ -16,15 +16,17 @@ const AICoach = {
     currentEpisode: 0,
     bestPoints: -1,         
     bestGoalDiff: -999,
+
+    bestStats: null,
     
     mutationDetails: "",    
     
     // History Tracking
     mutationHistory: [], 
 
-    // 1. INITIALIZE
-    initTournamentTraining: function(json, opponents, rounds, episodes) {
-        console.log("👨‍🏫 COACH: Initializing Tournament Mode");
+    // 1. INITIALIZE (With Manual Baseline Support)
+    initTournamentTraining: function(json, opponents, rounds, episodes, manualBaseline = -1) {
+        console.log(`👨‍🏫 COACH: Initializing. Target Baseline: ${manualBaseline > -1 ? manualBaseline : "Auto"}`);
         
         this.traineeJSON = JSON.parse(JSON.stringify(json));
         this.mutantJSON = JSON.parse(JSON.stringify(json)); 
@@ -32,14 +34,17 @@ const AICoach = {
         this.roundsPerEpisode = rounds;
         this.maxEpisodes = episodes;
         
-        this.currentEpisode = 0;
-        this.bestPoints = -1;
-        this.active = true;
-        this.mutationDetails = "Baseline Assessment (No Mutation)";
+        // --- NEW: Manual Baseline Logic ---
+        this.bestPoints = manualBaseline; 
+        this.useManualBaseline = (manualBaseline > -1);
+        // ----------------------------------
         
-        this.mutationHistory = []; // Reset log
-
-        this.startEpisode();
+        this.bestGoalDiff = -999;
+        this.currentEpisode = 0;
+        this.active = true;
+        this.mutationDetails = "Baseline Assessment";
+        
+        this.mutationHistory = [];
     },
 
     // 2. START EPISODE
@@ -68,10 +73,10 @@ const AICoach = {
         Tournament.startTrainingGauntlet("TRAINEE", this.opponents, this.roundsPerEpisode);
     },
 
-    // 3. EPISODE COMPLETE
+// 3. EPISODE COMPLETE (Modified for Manual Baseline)
     reportTournamentResult: function(standings) {
         const stats = standings["TRAINEE"];
-        if (!stats) { console.error("Trainee missing from standings!"); return; }
+        if (!stats) { console.error("Trainee missing!"); return; }
 
         const points = stats.Pts;
         const goalDiff = stats.GF - stats.GA;
@@ -81,40 +86,57 @@ const AICoach = {
         let improved = false;
         let outcomeString = "REJECTED";
 
-        // D. EVALUATION LOGIC
-        if (this.currentEpisode === 1) {
+        // ============================================================
+        // LOGIC BRANCH: AUTO vs MANUAL BASELINE
+        // ============================================================
+        
+        // Scenario A: Auto Mode (Episode 1 is always the baseline)
+        if (this.currentEpisode === 1 && !this.useManualBaseline) {
             this.bestPoints = points;
             this.bestGoalDiff = goalDiff;
-            this.mutationDetails = "Baseline Established.";
+
+            this.bestStats = JSON.parse(JSON.stringify(stats));
+
+            this.mutationDetails = "Baseline Established (Auto).";
             outcomeString = "BASELINE";
         } 
+        
+        // Scenario B: Manual/Standard Mode (Must beat the target)
         else {
+            // Check if we beat the current best (or manual target)
             if (points > this.bestPoints || (points === this.bestPoints && goalDiff > this.bestGoalDiff)) {
                 console.log("🚀 IMPROVEMENT CONFIRMED!");
                 this.bestPoints = points;
                 this.bestGoalDiff = goalDiff;
+
+                this.bestStats = JSON.parse(JSON.stringify(stats));
+                                
                 this.traineeJSON = JSON.parse(JSON.stringify(this.mutantJSON)); 
                 improved = true;
                 outcomeString = "IMPROVED";
             } else {
-                console.log("❌ REGRESSION. Discarding.");
+                // FAILED
+                console.log(`❌ FAILED TARGET (${this.bestPoints}). Discarding.`);
             }
         }
 
-        // Log it
+        // ============================================================
+        // LOGGING & FINISH (Preserves your HTML Report)
+        // ============================================================
         this.logHistory(stats, outcomeString);
 
-        // E. PREPARE NEXT EPISODE
         if (this.currentEpisode < this.maxEpisodes) {
+            // If failed, 'improved' is false, so it reverts and retries
             this.prepareNextMutation(improved);
         } else {
             console.log("🎓 TRAINING COMPLETE.");
             this.active = false;
             
-            this.downloadJSON();     // Best File (JSON)
-            this.downloadHistory();  // Top 5 Report (HTML)
+            // DOWNLOADS
+            this.downloadJSON();
+            this.downloadHistory(); // <--- This runs your new HTML generator
             
-            alert("Training Complete! Downloading results.");
+            alert("Training Complete!");
             gameState = "menu"; 
         }
     },

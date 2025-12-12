@@ -80,6 +80,8 @@
 // BASIC SETUP
 // =========================================================
 
+
+let train_baseline = -1;
 let menuIndex = 0;
 // Add "Training" to the menu list
 const menuItems = ["New Game", "Tournament", "Training", "Options", "Exit"];
@@ -87,7 +89,7 @@ const menuItems = ["New Game", "Tournament", "Training", "Options", "Exit"];
 // --- TRAINING MENU STATE ---
 let trainingIndex = 0;
 // Menu Options: [0:File, 1:Opp1, 2:Opp2, 3:Opp3, 4:Rounds, 5:Episodes, 6:Start]
-const trainingItems = ["Load Trainee", "Opponent 1", "Opponent 2", "Opponent 3", "Rounds", "Episodes", "BEGIN"];
+const trainingItems = ["Load Trainee", "Opponent 1", "Opponent 2", "Opponent 3", "Rounds", "Episodes", "Baseline", "BEGIN"];
 
 // Default Settings
 let train_opponents = [0, 1, 2]; // Indices of Strategies keys
@@ -175,69 +177,63 @@ if (p.team === 0) {
     }
 }
 
+
+
+
+
 // =========================================================
-// TRAINING REWARDS (Phase 3)
+// TRAINING REWARDS (Pure Performance)
 // =========================================================
 function applyTrainingRewards() {
     const owner = getPlayerById(puck.ownerId);
 
     for (const p of players) {
-
-        // <<< ONLY TEAM 0 LEARNS >>>
         if (p.team !== 0) continue;
 
         let r = 0;
 
-        // =====================================================
-        // 1. Reward: moving toward the puck
-        // =====================================================
+        // --- A. MOVEMENT (Drive the play) ---
+        // Small reward for moving toward the puck/play
         const dxp = puck.x - p.x;
         const dyp = puck.y - p.y;
         const dot = (p.vx * dxp + p.vy * dyp);
-
         if (dot > 0) r += 0.01;
-        else r -= 0.02;
+        else r -= 0.01;
 
-        // =====================================================
-        // 2. Reward: possession
-        // =====================================================
+        // --- B. POSSESSION (The most important non-goal metric) ---
         if (owner && owner.id === p.id) r += 0.1;
 
-        // =====================================================
-        // 3. Reward: team scoring
-        // =====================================================
+        // --- C. SCORING (The ultimate goal) ---
         if (lastGoalTeam !== null && lastGoalTeam === p.team) r += 1.0;
 
-        // =====================================================
-        // 4. Penalty: crowding / clustering
-        // =====================================================
-        for (const o of players) {
-            if (o === p) continue;
-            const d = Math.hypot(p.x - o.x, p.y - o.y);
-
-            // discourage tight huddles
-            if (d < 25) r -= 0.03;
+        // --- D. SUPPORT (Keep the play alive) ---
+        // Reward purely for being open when a teammate has the puck.
+        // We do NOT penalize for being close; we only reward for being useful.
+        if (owner && owner.team === p.team && owner.id !== p.id) {
+            // Simple check: Do I have a line of sight to the puck carrier?
+            // (This is much better than a generic distance check)
+            if (typeof isLaneBlocked === 'function') {
+                if (!isLaneBlocked(p.x, p.y, owner.x, owner.y, p.team)) {
+                    r += 0.05; // Reward for being a valid pass option
+                }
+            } else {
+                // Fallback if helper missing: just reward being somewhat near
+                const d = Math.hypot(p.x - owner.x, p.y - owner.y);
+                if (d < 300) r += 0.02;
+            }
         }
 
-        // =====================================================
-        // 5. Penalty: being stuck (very low movement)
-        // =====================================================
-        if (Math.abs(p.vx) < 0.2 && Math.abs(p.vy) < 0.2) {
+        // --- E. LAZINESS (Anti-Camping) ---
+        // We still penalize doing literally nothing, because that's never good.
+        if (Math.abs(p.vx) < 0.1 && Math.abs(p.vy) < 0.1) {
             r -= 0.01;
         }
 
-        // =====================================================
-        // 6. Reward: open-ice spacing when teammate has puck
-        // =====================================================
-        if (owner && owner.team === p.team && owner.id !== p.id) {
-            const d = Math.hypot(p.x - owner.x, p.y - owner.y);
-            if (d > 40) r += 0.02;
-        }
-
-        // accumulate reward
         p.reward += r;
     }
 }
+
+
 
 
 
@@ -472,10 +468,14 @@ function loadTeamForTraining(input) {
 
 
 
+
+
+
 function handleTrainingInput(e) {
     const keys = Object.keys(Strategies);
     
     // Navigation (Up/Down)
+    // Note: 'trainingItems' must now include "Baseline" (8 items total)
     if (e.key === "ArrowUp") {
         trainingIndex = (trainingIndex - 1 + trainingItems.length) % trainingItems.length;
     }
@@ -489,7 +489,7 @@ function handleTrainingInput(e) {
         
         // Opponent Selectors (Indices 1, 2, 3)
         if (trainingIndex >= 1 && trainingIndex <= 3) {
-            const oppIdx = trainingIndex - 1; // Map menu index to array index (0,1,2)
+            const oppIdx = trainingIndex - 1; 
             train_opponents[oppIdx] = (train_opponents[oppIdx] + dir + keys.length) % keys.length;
         }
         
@@ -506,6 +506,12 @@ function handleTrainingInput(e) {
             if (train_episodes < 10) train_episodes = 10;
             if (train_episodes > 2000) train_episodes = 2000;
         }
+
+        // NEW: Baseline (Index 6)
+        if (trainingIndex === 6) {
+            train_baseline += (dir * 5); // Adjust by 5 points
+            if (train_baseline < -1) train_baseline = -1; // -1 means "Auto"
+        }
     }
 
     // Selection (Enter)
@@ -514,8 +520,9 @@ function handleTrainingInput(e) {
         if (trainingIndex === 0) {
             document.getElementById('coachLoader').click();
         }
-// Start Training
-        if (trainingIndex === 6) {
+        
+        // Start Training (Now Index 7)
+        if (trainingIndex === 7) {
             if (!AICoach.baseJSON) {
                 alert("Please Load a Trainee File First!");
                 return;
@@ -524,21 +531,24 @@ function handleTrainingInput(e) {
             // 1. Set the game state flag FIRST
             gameState = "tournament"; 
             
-            // 2. FORCE a single render cycle of the new screen
-            // This makes the window update to the blank field/report card *before* the lag starts
-            if (typeof renderTournamentStatus === 'function') {
-                renderTournamentStatus();
-            }
-
-            // 3. Launch the Coach (The coach calls the Warp Engine)
+            // 2. Init the Coach logic (but do NOT start simulation yet)
             const oppKeys = train_opponents.map(i => keys[i]);
             
             AICoach.initTournamentTraining(
                 AICoach.baseJSON, 
                 oppKeys, 
                 train_rounds, 
-                train_episodes
+                train_episodes,
+                train_baseline // <--- Passing the new baseline setting
             );
+
+            // 3. Asynchronous Kickstart
+            // We use setTimeout to yield control to the browser for 50ms.
+            // This allows the browser to render the "Training Report" screen ONE TIME
+            // before the CPU-heavy Warp Engine locks up the thread.
+            setTimeout(() => {
+                AICoach.startEpisode(); 
+            }, 50);
         }
     }
 
@@ -550,6 +560,8 @@ function handleTrainingInput(e) {
 
 
 
+
+
 function drawTrainingMenu() {
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, W, H);
@@ -557,7 +569,7 @@ function drawTrainingMenu() {
     ctx.textBaseline = "middle";
 
     // Title
-    ctx.fillStyle = "#7aa2f7"; // Nice blue accent
+    ctx.fillStyle = "#7aa2f7"; 
     ctx.font = "bold 40px Arial";
     ctx.fillText("AI TRAINING CAMP", W / 2, 60);
 
@@ -599,9 +611,13 @@ function drawTrainingMenu() {
     // 5. Episodes
     drawRow(5, "Total Episodes:", train_episodes);
 
-    // 6. BEGIN BUTTON
-    const startY = 140 + (6 * 50) + 20;
-    if (trainingIndex === 6) {
+    // 6. NEW: Baseline Setting
+    const blText = (train_baseline === -1) ? "Auto (Ep 1)" : train_baseline + " Pts";
+    drawRow(6, "Min Baseline:", blText);
+
+    // 7. BEGIN BUTTON (Now at Index 7)
+    const startY = 140 + (7 * 50) + 20;
+    if (trainingIndex === 7) {
         ctx.fillStyle = "#00ff00"; // Green Highlight
         ctx.fillRect(W/2 - 100, startY - 25, 200, 50);
         ctx.fillStyle = "#000";
@@ -619,6 +635,7 @@ function drawTrainingMenu() {
     ctx.font = "14px Arial";
     ctx.fillText("ENTER to Select | LEFT/RIGHT to Adjust | ESC to Exit", W/2, H - 30);
 }
+
 
 
 
@@ -727,14 +744,14 @@ function handleOptionsInput(e) {
 // =========================================================
 // GAME CLOCK AND SCORE GLOBALS
 // =========================================================
-const GAME_DURATION_SECONDS = 180; // seconds
+const GAME_DURATION_SECONDS = 60; // seconds
 let timeRemaining = GAME_DURATION_SECONDS;
 let lastGameTimeUpdate = performance.now();
 
 // MULTI-PERIOD SYSTEM
 let currentPeriod = 1;
 const TOTAL_PERIODS = 3;
-const PERIOD_LENGTH_SECONDS = 180; // same as GAME_DURATION_SECONDS
+const PERIOD_LENGTH_SECONDS = 60; // same as GAME_DURATION_SECONDS
 
 
 // ==========================================
@@ -5172,6 +5189,17 @@ function drawPeriodOverlay() {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
 function renderTournamentStatus() {
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, W, H);
@@ -5186,16 +5214,25 @@ function renderTournamentStatus() {
         ctx.font = "bold 24px Arial";
         ctx.fillText("🏋️ TRAINING CAMP REPORT", W/2, 40);
 
-        const startY = 100;
-        const rowH = 40;
+        // Header Info
+        ctx.font = "16px Arial";
+        ctx.fillStyle = "#aaa";
+        if (typeof AICoach !== 'undefined') {
+            const epTxt = (AICoach.maxEpisodes > 99999) ? "∞" : AICoach.maxEpisodes;
+            ctx.fillText(`Episode: ${AICoach.currentEpisode} / ${epTxt}`, W/2, 65);
+            ctx.font = "italic 14px Arial";
+            ctx.fillText(AICoach.mutationDetails, W/2, 85);
+        }
+
+        const startY = 120;
+        const rowH = 35;
         // Columns: MATCHUP, GP, W, L, OTL, GF, GA, SOGF, SOGA, PTS
-        // Adjusted spacing to fit SOG
         const colX = [150, 320, 380, 440, 500, 580, 640, 720, 780, 880];
 
         // Headers
         ctx.textAlign = "right";
         ctx.fillStyle = "#888";
-        ctx.font = "bold 16px Monospace";
+        ctx.font = "bold 14px Monospace";
         ctx.fillText("MATCHUP", colX[0], startY);
         
         ctx.textAlign = "center";
@@ -5205,12 +5242,9 @@ function renderTournamentStatus() {
         ctx.fillText("OTL", colX[4], startY);
         ctx.fillText("GF", colX[5], startY);
         ctx.fillText("GA", colX[6], startY);
-        
-        // NEW HEADERS
         ctx.fillStyle = "#aaa";
         ctx.fillText("SOGF", colX[7], startY);
         ctx.fillText("SOGA", colX[8], startY);
-        
         ctx.fillStyle = "#fff";
         ctx.fillText("PTS", colX[9], startY);
 
@@ -5218,7 +5252,7 @@ function renderTournamentStatus() {
 
         // 1. Draw Individual Opponent Rows
         const oppKeys = Object.keys(Tournament.matchupStats);
-        let y = startY + 40;
+        let y = startY + 30;
 
         oppKeys.forEach((oppId, i) => {
             const s = Tournament.matchupStats[oppId];
@@ -5237,10 +5271,9 @@ function renderTournamentStatus() {
             ctx.fillText(s.GF, colX[5], y);
             ctx.fillText(s.GA, colX[6], y);
             
-            // Draw SOG Averages (One decimal place)
+            // Draw SOG Averages
             const avgSOGF = s.GP > 0 ? (s.SOGF / s.GP).toFixed(1) : "0.0";
             const avgSOGA = s.GP > 0 ? (s.SOGA / s.GP).toFixed(1) : "0.0";
-            
             ctx.fillStyle = "#aaa";
             ctx.fillText(avgSOGF, colX[7], y);
             ctx.fillText(avgSOGA, colX[8], y);
@@ -5253,20 +5286,20 @@ function renderTournamentStatus() {
             y += rowH;
         });
 
-        // 2. Draw Divider
-        y += 10;
+        // Divider
+        y += 5;
         ctx.strokeStyle = "#444";
         ctx.lineWidth = 2;
         ctx.beginPath(); ctx.moveTo(50, y); ctx.lineTo(950, y); ctx.stroke();
-        y += 40;
+        y += 30;
 
-        // 3. Draw TOTALS Row
+        // 2. TOTALS ROW (Blue)
         const total = Tournament.standings["TRAINEE"];
         if (total) {
             ctx.fillStyle = "#7aa2f7"; 
             ctx.textAlign = "right";
-            ctx.font = "bold 20px Monospace";
-            ctx.fillText("TRAINEE TOTALS", colX[0], y);
+            ctx.font = "bold 18px Monospace";
+            ctx.fillText("CURRENT TOTAL", colX[0], y);
 
             ctx.textAlign = "center";
             ctx.fillText(total.GP, colX[1], y);
@@ -5276,26 +5309,71 @@ function renderTournamentStatus() {
             ctx.fillText(total.GF, colX[5], y);
             ctx.fillText(total.GA, colX[6], y);
             
-            // Total Averages
             const totSOGF = total.GP > 0 ? (total.totalSOGF / total.GP).toFixed(1) : "0.0";
             const totSOGA = total.GP > 0 ? (total.totalSOGA / total.GP).toFixed(1) : "0.0";
-            
             ctx.fillStyle = "#aaa";
             ctx.fillText(totSOGF, colX[7], y);
             ctx.fillText(totSOGA, colX[8], y);
             
             ctx.fillStyle = "#fff";
             ctx.fillText(total.Pts, colX[9], y);
+            
+            y += rowH + 10;
+        }
+
+        // 3. BEST RECORD ROW (Gold)
+        if (typeof AICoach !== 'undefined' && AICoach.bestStats) {
+            const bs = AICoach.bestStats;
+            
+            // Gold Box
+            ctx.strokeStyle = "#FFD700";
+            ctx.lineWidth = 2;
+            ctx.strokeRect(colX[0] - 140, y - 22, 800, 30);
+
+            ctx.fillStyle = "#FFD700"; // Gold Text
+            ctx.textAlign = "right"; 
+            ctx.fillText("BEST SO FAR", colX[0], y);
+
+            ctx.textAlign = "center";
+            ctx.fillText(bs.GP, colX[1], y);
+            ctx.fillText(bs.W, colX[2], y);
+            ctx.fillText(bs.L, colX[3], y);
+            ctx.fillText(bs.OTL, colX[4], y);
+            ctx.fillText(bs.GF, colX[5], y);
+            ctx.fillText(bs.GA, colX[6], y);
+            
+            const bSOGF = bs.GP > 0 ? (bs.totalSOGF / bs.GP).toFixed(1) : "-";
+            const bSOGA = bs.GP > 0 ? (bs.totalSOGA / bs.GP).toFixed(1) : "-";
+            ctx.fillText(bSOGF, colX[7], y);
+            ctx.fillText(bSOGA, colX[8], y);
+            
+            ctx.font = "bold 18px Monospace";
+            ctx.fillText(bs.Pts, colX[9], y);
+        }
+
+        // Stop Warning Overlay
+        if (typeof AICoach !== 'undefined' && AICoach.stopRequested) {
+            ctx.fillStyle = "rgba(0,0,0,0.8)";
+            ctx.fillRect(W/2 - 200, H - 120, 400, 50);
+            ctx.strokeStyle = "#f7768e"; ctx.lineWidth = 2; ctx.strokeRect(W/2 - 200, H - 120, 400, 50);
+            ctx.fillStyle = "#f7768e"; ctx.textAlign = "center"; ctx.font = "bold 18px Arial";
+            ctx.fillText("🛑 STOP REQUESTED... Finishing Episode", W/2, H - 90);
+        } else if (typeof AICoach !== 'undefined' && AICoach.active) {
+            ctx.fillStyle = "#666"; ctx.textAlign = "center"; ctx.font = "12px Arial";
+            ctx.fillText("Press 'Q' to Save & Quit", W/2, H - 70);
         }
     }
     // =========================================================
-    // MODE B: STANDARD SEASON VIEW (Existing Code)
+    // MODE B: STANDARD SEASON VIEW (Standard Tournament)
     // =========================================================
     else {
         ctx.textAlign = "center";
         ctx.fillStyle = "#fff";
         ctx.font = "bold 24px Arial";
-        ctx.fillText("🏆 LIVE STANDINGS", W/2, 40);
+        
+        // DYNAMIC TITLE
+        const title = (Tournament.active) ? "🏆 LIVE STANDINGS" : "🏆 FINAL STANDINGS";
+        ctx.fillText(title, W/2, 40);
 
         const sorted = Object.values(Tournament.standings).sort((a,b) => {
             if (b.Pts !== a.Pts) return b.Pts - a.Pts;
@@ -5347,64 +5425,57 @@ function renderTournamentStatus() {
             ctx.fillStyle = "#fff"; ctx.fillText(t.Pts, colX[8], y);
             ctx.fillStyle = "#888"; ctx.fillText(t.GF, colX[9], y); ctx.fillText(t.GA, colX[10], y);
 
+            // FIX IS HERE: DEFINING THE VARIABLES BEFORE USING THEM
             const avgSOGF = (t.GP > 0) ? (t.totalSOGF / t.GP).toFixed(1) : "0.0";
             const avgSOGA = (t.GP > 0) ? (t.totalSOGA / t.GP).toFixed(1) : "0.0";
+
             ctx.fillStyle = "#aaa"; ctx.fillText(avgSOGF, colX[11], y); ctx.fillText(avgSOGA, colX[12], y);
         });
+
+        // EXIT INSTRUCTION
+        if (!Tournament.active) {
+            ctx.fillStyle = "#666";
+            ctx.textAlign = "center";
+            ctx.font = "14px Arial";
+            ctx.fillText("Press ESC to Return to Menu", W/2, H - 30);
+        }
     }
 
-    // 5. FOOTER (Active Match Score)
-    const idx = Tournament.currentMatchIndex;
-    const total = Tournament.matches.length;
-    
-    if (idx < total) {
+    // 5. FOOTER (Active Match Score) - Only show if tournament is ACTIVE
+    if (Tournament.active && Tournament.currentMatchIndex < Tournament.matches.length) {
+        const idx = Tournament.currentMatchIndex;
+        const total = Tournament.matches.length;
         const m = Tournament.matches[idx];
         const hName = Strategies[m.home].code;
         const aName = Strategies[m.away].code;
         
-        const goalie0 = players.find(p => p.team === 0 && p.type === "goalie");
-        const goalie1 = players.find(p => p.team === 1 && p.type === "goalie");
-        const saves0 = goalie0 ? goalie0.saves : 0;
-        const saves1 = goalie1 ? goalie1.saves : 0;
-        const sog0 = scoreTeam0 + saves1;
-        const sog1 = scoreTeam1 + saves0;
-
+        // Safe fallback for SOG display
+        const sog0 = Tournament.standings[m.home] ? (Tournament.standings[m.home].totalSOGF || 0) : 0; 
+        
         ctx.fillStyle = "#111";
         ctx.fillRect(0, H - 60, W, 60);
-        ctx.strokeStyle = "#444";
-        ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(0, H-60); ctx.lineTo(W, H-60); ctx.stroke();
+        ctx.strokeStyle = "#444"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, H-60); ctx.lineTo(W, H-60); ctx.stroke();
 
         const footerY = H - 25;
-        
-        ctx.textAlign = "left";
-        ctx.font = "14px Arial";
-        ctx.fillStyle = "#666";
+        ctx.textAlign = "left"; ctx.font = "14px Arial"; ctx.fillStyle = "#666";
         ctx.fillText(`MATCH ${idx+1} / ${total}`, 30, footerY);
 
-        ctx.textAlign = "center";
-        ctx.font = "bold 24px Arial";
-        ctx.fillStyle = "#fff";
+        ctx.textAlign = "center"; ctx.font = "bold 24px Arial"; ctx.fillStyle = "#fff";
         ctx.fillText(`${hName}  ${scoreTeam0} - ${scoreTeam1}  ${aName}`, W/2, footerY + 8);
         
-        // SOG Live Display
-        ctx.font = "12px Arial";
-        ctx.fillStyle = "#888";
-        ctx.fillText(`SOG: ${sog0}`, W/2 - 140, footerY + 5); 
-        ctx.fillText(`SOG: ${sog1}`, W/2 + 140, footerY + 5);
-
-        ctx.textAlign = "right";
-        ctx.font = "14px Monospace";
-        ctx.fillStyle = "#888";
+        ctx.textAlign = "right"; ctx.font = "14px Monospace"; ctx.fillStyle = "#888";
         const pTxt = currentPeriod > 3 ? "OT" : "P" + currentPeriod;
         ctx.fillText(`${pTxt} | ${Math.floor(timeRemaining)}s`, W - 30, footerY);
     }
-
-    // 6. Training Progress Bar (Above Footer)
-    if (typeof AICoach !== 'undefined' && AICoach.active) {
-        AICoach.drawProgressBar(ctx, W, H - 60);
-    }
 }
+
+
+
+
+
+
+
+
 
 
 

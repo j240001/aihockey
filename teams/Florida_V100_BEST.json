@@ -1,5 +1,5 @@
 {
-  "name": "Detroit",
+  "name": "Florida",
   "c": [
     {
       "type": "Selector",
@@ -108,7 +108,7 @@
               "cat": "cond"
             },
             {
-              "type": "actDefendHome",
+              "type": "actSmartIntercept",
               "cat": "act"
             }
           ]
@@ -144,7 +144,7 @@
               "cat": "cond"
             },
             {
-              "type": "actSmartIntercept",
+              "type": "actRegroup",
               "cat": "act"
             }
           ]
@@ -332,8 +332,9 @@
               "cat": "cond"
             },
             {
-              "type": "actExecutePass",
-              "cat": "act"
+              "type": "actSafetyPosition",
+              "cat": "act",
+              "depth": 120
             }
           ]
         },
@@ -652,8 +653,8 @@
             {
               "type": "actSupportPosition",
               "cat": "act",
-              "offsetx": -20,
-              "offsety": 50
+              "offsetx": -40,
+              "offsety": 60
             }
           ]
         },
@@ -670,10 +671,8 @@
               "cat": "cond"
             },
             {
-              "type": "actSupportPosition",
-              "cat": "act",
-              "offsetx": -20,
-              "offsety": 50
+              "type": "actDriveNet",
+              "cat": "act"
             }
           ]
         },
@@ -730,7 +729,7 @@
               "cat": "cond"
             },
             {
-              "type": "actShoot",
+              "type": "actGoBackdoor",
               "cat": "act"
             }
           ]
@@ -892,10 +891,8 @@
               "cat": "cond"
             },
             {
-              "type": "actSupportPosition",
-              "cat": "act",
-              "offsetx": -20,
-              "offsety": -30
+              "type": "actChill",
+              "cat": "act"
             }
           ]
         },
@@ -970,7 +967,7 @@
               "cat": "cond"
             },
             {
-              "type": "actExecutePass",
+              "type": "actSmartIntercept",
               "cat": "act"
             }
           ]

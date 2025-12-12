@@ -1,5 +1,10 @@
 {
-  "name": "Detroit",
+  "name": "Nashville",
+  "code": "NSH",
+  "colors": {
+    "main": "#ffb81c",
+    "secondary": "#041e42"
+  },
   "c": [
     {
       "type": "Selector",
@@ -36,7 +41,7 @@
               "cat": "cond"
             },
             {
-              "type": "actDriveNet",
+              "type": "actExecuteCarry",
               "cat": "act"
             }
           ]
@@ -86,24 +91,6 @@
               "cat": "cond"
             },
             {
-              "type": "condInShotRange",
-              "cat": "cond"
-            },
-            {
-              "type": "actDefendHome",
-              "cat": "act"
-            }
-          ]
-        },
-        {
-          "type": "Sequence",
-          "cat": "struct",
-          "children": [
-            {
-              "type": "condOppHasPuck",
-              "cat": "cond"
-            },
-            {
               "type": "condPuckInDefZone",
               "cat": "cond"
             },
@@ -127,24 +114,6 @@
             },
             {
               "type": "actAggressiveGap",
-              "cat": "act"
-            }
-          ]
-        },
-        {
-          "type": "Sequence",
-          "cat": "struct",
-          "children": [
-            {
-              "type": "condOppHasPuck",
-              "cat": "cond"
-            },
-            {
-              "type": "condPuckInOffZone",
-              "cat": "cond"
-            },
-            {
-              "type": "actSmartIntercept",
               "cat": "act"
             }
           ]
@@ -234,25 +203,7 @@
               "cat": "cond"
             },
             {
-              "type": "condPuckInDefZone",
-              "cat": "cond"
-            },
-            {
               "type": "actDefendHome",
-              "cat": "act"
-            }
-          ]
-        },
-        {
-          "type": "Sequence",
-          "cat": "struct",
-          "children": [
-            {
-              "type": "condLoosePuck",
-              "cat": "cond"
-            },
-            {
-              "type": "actChill",
               "cat": "act"
             }
           ]
@@ -332,7 +283,7 @@
               "cat": "cond"
             },
             {
-              "type": "actExecutePass",
+              "type": "actExecuteCarry",
               "cat": "act"
             }
           ]
@@ -540,7 +491,7 @@
               "cat": "cond"
             },
             {
-              "type": "actExecuteCarry",
+              "type": "actHoverBlueLine",
               "cat": "act"
             }
           ]
@@ -558,7 +509,7 @@
               "cat": "cond"
             },
             {
-              "type": "actExecutePass",
+              "type": "actExecuteCarry",
               "cat": "act"
             }
           ]
@@ -576,8 +527,9 @@
               "cat": "cond"
             },
             {
-              "type": "actHoverBlueLine",
-              "cat": "act"
+              "type": "actSafetyPosition",
+              "cat": "act",
+              "depth": 120
             }
           ]
         },
@@ -784,7 +736,7 @@
               "cat": "cond"
             },
             {
-              "type": "actExecuteCarry",
+              "type": "actRegroup",
               "cat": "act"
             }
           ]
@@ -820,7 +772,7 @@
               "cat": "cond"
             },
             {
-              "type": "actAggressiveGap",
+              "type": "actDefendHome",
               "cat": "act"
             }
           ]
@@ -838,7 +790,7 @@
               "cat": "cond"
             },
             {
-              "type": "actHoverBlueLine",
+              "type": "actDefendHome",
               "cat": "act"
             }
           ]
@@ -856,7 +808,7 @@
               "cat": "cond"
             },
             {
-              "type": "actHoverBlueLine",
+              "type": "actDefendHome",
               "cat": "act"
             }
           ]
@@ -1006,7 +958,7 @@
               "cat": "cond"
             },
             {
-              "type": "actExecuteCarry",
+              "type": "actExecutePass",
               "cat": "act"
             }
           ]
@@ -1042,7 +994,7 @@
               "cat": "cond"
             },
             {
-              "type": "actAggressiveGap",
+              "type": "actDefendHome",
               "cat": "act"
             }
           ]
@@ -1060,7 +1012,7 @@
               "cat": "cond"
             },
             {
-              "type": "actHoverBlueLine",
+              "type": "actDefendHome",
               "cat": "act"
             }
           ]
@@ -1078,7 +1030,7 @@
               "cat": "cond"
             },
             {
-              "type": "actHoverBlueLine",
+              "type": "actDefendHome",
               "cat": "act"
             }
           ]
@@ -1148,7 +1100,7 @@
               "cat": "cond"
             },
             {
-              "type": "actDefendHome",
+              "type": "actChill",
               "cat": "act"
             }
           ]
