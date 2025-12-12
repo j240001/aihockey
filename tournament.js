@@ -45,7 +45,7 @@ const Tournament = {
         const numTeams = teams.length;
         const gamesPerCycle = numTeams - 1; 
         const half = numTeams / 2;
-        const TARGET_GAMES = 16;
+        const TARGET_GAMES = 82; // normally 82
         let seasonLoops = Math.ceil(TARGET_GAMES / gamesPerCycle);
         if (seasonLoops < 1) seasonLoops = 1;
 
@@ -132,47 +132,59 @@ const Tournament = {
 
 
 // 2. VISUAL MATCH STARTER
-    startNextMatch: function() {
-        
-        // --- FIX 1: HANDLE END OF TOURNAMENT ---
-        if (this.currentMatchIndex >= this.matches.length) {
-            console.log("🏆 TOURNAMENT COMPLETE");
-            
-            // 1. Mark tournament as inactive
-            this.active = false;
-            
-            // 2. FORCE the screen to switch to Standings
-            // This pulls the user away from the "Game Over" ice rink
-            gameState = "tournament"; 
-            
-            return;
-        }
-        // ---------------------------------------
+startNextMatch: function() {
+   
+    // --- FIX: END OF TOURNAMENT (Decoupled) ---
+    if (this.currentMatchIndex >= this.matches.length) {
+        console.log("🏆 TOURNAMENT COMPLETE");
+       
+        // 1. Mark as Inactive
+        this.active = false;
+       
+        // 2. Reset Game Variables to clear "Game Over" flags
+        if (typeof fullGameReset === 'function') fullGameReset();
+        // 3. FORCE SWITCH (Delayed)
+        // We wait 100ms to let the main loop finish its "Game Over" logic
+        // before we overwrite the state to "tournament".
+        setTimeout(() => {
+            gameState = "tournament";
+            console.log("State forced to: " + gameState);
+        }, 100);
+       
+        return;
+    }
+    // ------------------------------------------
+    const match = this.matches[this.currentMatchIndex];
 
-        const match = this.matches[this.currentMatchIndex];
-        
-        // Ensure state is correct for the new match
-        gameState = "tournament"; 
-        
-        Team0_Strategy = Strategies[match.home];
-        Team1_Strategy = Strategies[match.away];
-        
-        if (Team0_Strategy.colors) {
-            TEAM0_COLOR = Team0_Strategy.colors.main;
-            TEAM0_COLOR_HAS_PUCK = Team0_Strategy.colors.secondary;
-        }
-        if (Team1_Strategy.colors) {
-            TEAM1_COLOR = Team1_Strategy.colors.main;
-            TEAM1_COLOR_HAS_PUCK = Team1_Strategy.colors.secondary;
-        }
+    // *** MOVE RESET EVEN EARLIER (before any state/render risk) ***
+    scoreTeam0 = 0;
+    scoreTeam1 = 0;
 
-        if (!this.isTrainingEpisode) {
-            console.log(`\n⚔️ MATCH ${this.currentMatchIndex + 1}: ${Team0_Strategy.code} vs ${Team1_Strategy.code}`);
-        }
-        
-        fullGameReset(); 
-        this.simLoop();
-    },
+    gameState = "tournament";
+    Team0_Strategy = Strategies[match.home];
+    Team1_Strategy = Strategies[match.away];
+   
+    if (Team0_Strategy.colors) {
+        TEAM0_COLOR = Team0_Strategy.colors.main;
+        TEAM0_COLOR_HAS_PUCK = Team0_Strategy.colors.secondary;
+    }
+    if (Team1_Strategy.colors) {
+        TEAM1_COLOR = Team1_Strategy.colors.main;
+        TEAM1_COLOR_HAS_PUCK = Team1_Strategy.colors.secondary;
+    }
+    if (!this.isTrainingEpisode) {
+        console.log(`\n⚔️ MATCH ${this.currentMatchIndex + 1}: ${Team0_Strategy.code} vs ${Team1_Strategy.code}`);
+    }
+   
+    fullGameReset();
+    this.simLoop();
+
+    // *** OPTIONAL: FORCE A RENDER WITH 0-0 TO FLUSH ANY GLITCH ***
+    if (typeof renderFrame === 'function') renderFrame();
+    else if (typeof renderTournamentStatus === 'function') renderTournamentStatus();
+},
+
+
 
 
 
@@ -481,10 +493,13 @@ const Tournament = {
 
         this.currentMatchIndex++;
 
+        scoreTeam0 = 0;
+        scoreTeam1 = 0;
+
         // --- FIX 2: CHAIN REACTION LOGIC ---
         // We use 'this.active' because gameState is currently 'gameover'
         if (this.active && !this.isWarping) {
-            const delay = (this.watchMode || !this.isTrainingEpisode) ? 2000 : 10;
+            const delay = (this.watchMode || !this.isTrainingEpisode) ? 222 : 10;   //slight pause between games
             setTimeout(() => this.startNextMatch(), delay);
         } else if (this.isWarping) {
             this.startNextMatch();

@@ -1,0 +1,6484 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Unified AI Hockey</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+    body, html {
+        background: #111;
+        margin: 0;
+        padding: 0;
+        overflow: hidden; /* Kills the scroll bars */
+        width: 100%;
+        height: 100%;
+        touch-action: none; /* Disables double-tap to zoom */
+    }
+    canvas {
+        background: #000;
+        display: block;
+        margin: 0 auto;
+        /* Optional: Force canvas to fit width if needed */
+        /* width: 100%; */
+    }
+</style>
+</head>
+
+<input type="file" id="coachLoader" style="display:none" onchange="loadTeamForTraining(this)">
+
+<body>
+<canvas id="game" width="1000" height="600"></canvas>
+
+
+<script src="helpers.js"></script>
+<script src="strategies.js"></script>
+<script src="tournament.js"></script>
+<script src="ai_skating.js"></script>
+
+<!-- TEAMS -->
+<script src="teams/bt1.js"></script>
+<script src="teams/bt2.js"></script>
+<script src="teams/bt3.js"></script>
+<script src="teams/bt4.js"></script>
+<script src="teams/bt5.js"></script>
+<script src="teams/bt6.js"></script>  
+<script src="teams/bt7.js"></script>
+<script src="teams/bt8.js"></script>
+<script src="teams/bt9.js"></script>
+<script src="teams/bt10.js"></script>
+<script src="teams/bt11.js"></script>
+<script src="teams/bt12.js"></script>
+
+<script src="library.js"></script>
+<script src="strategy_interpreter.js"></script>
+<script src="ai_coach.js"></script>
+
+<script>
+
+// bt1 = TOR
+// bt2 = CGY
+// bt3 = DAL
+// bt4 = NSH
+// bt5 = VAN
+// bt6 = WPG
+// bt7 = OTT
+// bt8 = MTL
+// bt9 = EDM
+// bt10 = FLA
+// bt11 = STL
+// bt12 = DET
+
+// This version 2415 attempts to add an AI Coach training system
+
+
+
+
+
+// =========================================================
+// BASIC SETUP
+// =========================================================
+
+
+let train_baseline = -1;
+let menuIndex = 0;
+// Add "Training" to the menu list
+const menuItems = ["New Game", "Tournament", "Training", "Options", "Exit"];
+
+// --- TRAINING MENU STATE ---
+let trainingIndex = 0;
+// Menu Options: [0:File, 1:Opp1, 2:Opp2, 3:Opp3, 4:Rounds, 5:Episodes, 6:Start]
+const trainingItems = ["Load Trainee", "Opponent 1", "Opponent 2", "Opponent 3", "Rounds", "Episodes", "Baseline", "BEGIN"];
+
+// Default Settings
+let train_opponents = [0, 1, 2]; // Indices of Strategies keys
+let train_rounds = 4;
+let train_episodes = 100;
+let train_loadedTeamName = "None"; // Text to display
+
+// =========================================================
+// CONFIGURATION GLOBALS
+// =========================================================
+let OPT_SKATERS = 3;         // Default to 3 vs 3
+let OPT_HUMAN_TEAM = -1;      // 0 = Blue, 1 = Red, -1 = Watch Mode
+let optionsIndex = 0;        // Current selection in Options Menu
+const optionsItems = ["Skaters", "Human Team", "Blue Strategy", "Red Strategy", "Back"];
+
+
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let TRAINING_MODE = false;
+
+// === NEW GAME STATE GLOBALS ===
+let gameState = 'menu'; // 'menu', 'playing', or 'training' , 'intermission'
+let trainingTimeoutId = null; // To track and stop the fast loop
+// ==============================
+
+let SHOW_DEBUG_OVERLAY = true;
+
+let isPaused = false;
+// BT8 PASSING STATS
+window.BT8_STATS = { attempts: 0, completions: 0 };
+
+
+// =========================================================
+// TRAINING GLOBALS (Phase 2)
+// =========================================================
+let TRAIN_RENDER = true;          // toggle rendering
+let TRAIN_STEPS = 0;              // total training steps
+let TRAIN_EPISODES = 0;           // completed training episodes
+let TRAIN_LAST_TIME = performance.now();
+let TRAIN_SPS = 0;                // steps per second measurement
+let TRAIN_LAST_TIME_STEPS = 0;
+let TRAIN_EPISODE_ACTIVE = true;
+let WATCH_MODE = false;
+
+// =========================================================
+// GOAL-BASED EPISODE METRICS
+// =========================================================
+let TRAIN_TOTAL_GOALS = 0;
+
+let TRAIN_POS_T0 = 0;    // possession time team 0
+let TRAIN_POS_T1 = 0;    // possession time team 1
+let TRAIN_POS_NONE = 0;  // puck free time
+
+const TRAIN_GOALS_PER_EPISODE = 11;
+
+// =========================================================
+// TRAINING EPISODE RESET
+// =========================================================
+function resetTrainingEpisode() {
+   
+
+    // Reset puck
+    puck.x = RX;
+    puck.y = RY;
+    puck.vx = 0;
+    puck.vy = 0;
+    puck.ownerId = null;
+
+    // Reset players
+    for (const p of players) {
+if (p.team === 0) {
+        p.x = RX - 20;
+        const attackGoalX = goal2;  // *** NEW ***
+        p.angle = Math.atan2(RY - p.y, attackGoalX - p.x);
+    } else {
+        p.x = RX + 20;
+        const attackGoalX = goal1;  // *** NEW ***
+        p.angle = Math.atan2(RY - p.y, attackGoalX - p.x);
+    }
+
+        p.vx = 0;
+        p.vy = 0;
+        p.reward = 0;  // clear reward for new episode
+    }
+}
+
+
+
+
+
+// =========================================================
+// TRAINING REWARDS (Pure Performance)
+// =========================================================
+function applyTrainingRewards() {
+    const owner = getPlayerById(puck.ownerId);
+
+    for (const p of players) {
+        if (p.team !== 0) continue;
+
+        let r = 0;
+
+        // --- A. MOVEMENT (Drive the play) ---
+        // Small reward for moving toward the puck/play
+        const dxp = puck.x - p.x;
+        const dyp = puck.y - p.y;
+        const dot = (p.vx * dxp + p.vy * dyp);
+        if (dot > 0) r += 0.01;
+        else r -= 0.01;
+
+        // --- B. POSSESSION (The most important non-goal metric) ---
+        if (owner && owner.id === p.id) r += 0.1;
+
+        // --- C. SCORING (The ultimate goal) ---
+        if (lastGoalTeam !== null && lastGoalTeam === p.team) r += 1.0;
+
+        // --- D. SUPPORT (Keep the play alive) ---
+        // Reward purely for being open when a teammate has the puck.
+        // We do NOT penalize for being close; we only reward for being useful.
+        if (owner && owner.team === p.team && owner.id !== p.id) {
+            // Simple check: Do I have a line of sight to the puck carrier?
+            // (This is much better than a generic distance check)
+            if (typeof isLaneBlocked === 'function') {
+                if (!isLaneBlocked(p.x, p.y, owner.x, owner.y, p.team)) {
+                    r += 0.05; // Reward for being a valid pass option
+                }
+            } else {
+                // Fallback if helper missing: just reward being somewhat near
+                const d = Math.hypot(p.x - owner.x, p.y - owner.y);
+                if (d < 300) r += 0.02;
+            }
+        }
+
+        // --- E. LAZINESS (Anti-Camping) ---
+        // We still penalize doing literally nothing, because that's never good.
+        if (Math.abs(p.vx) < 0.1 && Math.abs(p.vy) < 0.1) {
+            r -= 0.01;
+        }
+
+        p.reward += r;
+    }
+}
+
+
+
+
+
+
+// =========================================================
+// TRAINING TICK (Phase 2)
+// =========================================================
+function trainingTick(now) {
+    // Only active during training mode
+    TRAIN_STEPS++;
+
+    // --- possession tracking ---
+    const owner = getPlayerById(puck.ownerId);
+    if (owner) {
+        if (owner.team === 0) TRAIN_POS_T0++;
+        else TRAIN_POS_T1++;
+    } else {
+        TRAIN_POS_NONE++;
+    }
+
+    // Steps-per-second calculation
+    if (now - TRAIN_LAST_TIME >= 1000) {
+        TRAIN_SPS = TRAIN_STEPS - (TRAIN_LAST_TIME_STEPS || 0);
+        TRAIN_LAST_TIME_STEPS = TRAIN_STEPS;
+        TRAIN_LAST_TIME = now;
+    }
+
+    applyTrainingRewards();
+}
+
+
+let fps = 0;
+let frameCount = 0;
+let lastTime = performance.now();
+
+const resizeCanvas = () => {
+    const aspect = 1000 / 600;
+    let newW = window.innerWidth;
+    let newH = window.innerHeight;
+    
+    if (newW / newH > aspect) {
+        newW = newH * aspect;
+    } else {
+        newH = newW / aspect;
+    }
+    
+    canvas.style.width = newW + 'px';
+    canvas.style.height = newH + 'px';
+    canvas.width = 1000;
+    canvas.height = 600;
+};
+
+
+// =========================================================
+// GAME STATE MANAGEMENT
+// =========================================================
+
+
+function startTraining() {
+    // Only schedule if a training loop isn't already running
+    if (trainingTimeoutId === null) {
+        trainingLoop();
+    }
+}
+
+function stopTraining() {
+    if (trainingTimeoutId !== null) {
+        clearTimeout(trainingTimeoutId);
+        trainingTimeoutId = null;
+    }
+}
+
+
+function think(p) {
+    return thinkTeam0(p);
+}
+
+
+
+
+function fullGameReset() {
+    // 1. Reset Game Logic
+    scoreTeam0 = 0;
+    scoreTeam1 = 0;
+    currentPeriod = 1;
+    timeRemaining = GAME_DURATION_SECONDS;
+    lastGameTimeUpdate = performance.now();
+    
+    // 2. Reset Physics/Rules
+    team0AttacksRight = true; // ALWAYS reset to default direction
+    
+    // *** THE FIX: FORCE GOALS BACK TO STARTING POSITIONS ***
+    // This cleans up any swaps left over from previous OT games
+    goal1 = RX - 325;
+    goal2 = RX + 325;
+    // ******************************************************
+
+    offsideState.active = false;
+    offsideState.team = null;
+    goalResetTimer = null;
+    whistleEndTimer = null;
+    puckStealCooldown = 0;
+    lastGoalTeam = null;
+    isSuddenDeathGoal = false;
+
+    // 3. Reset Strategies & Colors
+    initTeams(); // Re-initialize players with new settings
+    resetPlayersToSpawn();
+    startFaceoffPause();
+}
+
+
+
+
+function startGame(startNewEpisode = false) {
+    gameState = 'playing';
+    // Always do a full reset when starting from menu
+    fullGameReset();
+    startTraining(); // Ensure loop runs
+}
+
+
+
+
+
+function activateMenuItem(item) {
+    if (item === "New Game") {
+        startGame(false); 
+        gameState = "playing";
+        return;
+    }
+
+    if (item === "Training") {
+        gameState = "training_menu";
+        trainingIndex = 0; // Reset cursor
+        return;
+    }
+
+    // --- NEW TOURNAMENT HANDLER ---
+    if (item === "Tournament") {
+        // Initialize the tournament engine (from tournament.js)
+        if (typeof Tournament !== 'undefined') {
+            Tournament.init();
+        } else {
+            // console.warn("Tournament module not loaded.");
+        }
+        return;
+    }
+    // -----------------------------
+
+    if (item === "Options") {
+        gameState = "options"; 
+        return;
+    }
+    
+    if (item === "Exit") {
+        location.reload();
+    }
+}
+
+
+
+function drawMenu() {
+    // Background
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    // Title
+    ctx.fillStyle = "#fff";
+    ctx.font = "40px Arial";
+    ctx.fillText("UNIFIED AI HOCKEY", W / 2, 140);
+
+    // Subtitle
+    ctx.font = "26px Arial";
+    ctx.fillText("MENU", W / 2, 200);
+
+    // Menu items
+    ctx.font = "24px Arial";
+    for (let i = 0; i < menuItems.length; i++) {
+        const y = 280 + i * 40;
+
+        if (i === menuIndex) {
+            // highlight box
+            ctx.fillStyle = "#2255ff";
+            ctx.fillRect(W/2 - 160, y - 20, 320, 36);
+
+            ctx.fillStyle = "#fff";
+        } else {
+            ctx.fillStyle = "#bbb";
+        }
+
+        ctx.fillText(menuItems[i], W / 2, y);
+    }
+
+    // Footer hint
+    ctx.fillStyle = "#666";
+    ctx.font = "16px Arial";
+    ctx.fillText("Use ↑ ↓ to navigate, Enter to select", W / 2, H - 60);
+}
+
+
+
+
+
+function loadTeamForTraining(input) {
+    const file = input.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const teamJson = JSON.parse(e.target.result);
+            
+            // Store temporarily in the Coach object (or a global)
+            AICoach.baseJSON = teamJson; 
+            
+            // Update UI String
+            let name = teamJson.name || "Custom Team";
+            if (name.length > 20) name = name.substring(0, 20) + "...";
+            train_loadedTeamName = name;
+            
+            input.value = ""; 
+        } catch (err) {
+            alert("Failed to load team JSON: " + err);
+        }
+    };
+    reader.readAsText(file);
+}
+
+
+
+
+
+
+function handleTrainingInput(e) {
+    const keys = Object.keys(Strategies);
+    
+    // Navigation (Up/Down)
+    // Note: 'trainingItems' must now include "Baseline" (8 items total)
+    if (e.key === "ArrowUp") {
+        trainingIndex = (trainingIndex - 1 + trainingItems.length) % trainingItems.length;
+    }
+    if (e.key === "ArrowDown") {
+        trainingIndex = (trainingIndex + 1) % trainingItems.length;
+    }
+
+    // Adjustment (Left/Right)
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        const dir = (e.key === "ArrowRight") ? 1 : -1;
+        
+        // Opponent Selectors (Indices 1, 2, 3)
+        if (trainingIndex >= 1 && trainingIndex <= 3) {
+            const oppIdx = trainingIndex - 1; 
+            train_opponents[oppIdx] = (train_opponents[oppIdx] + dir + keys.length) % keys.length;
+        }
+        
+        // Rounds (Index 4)
+        if (trainingIndex === 4) {
+            train_rounds += dir;
+            if (train_rounds < 1) train_rounds = 1;
+            if (train_rounds > 27) train_rounds = 27;
+        }
+        
+        // Episodes (Index 5)
+        if (trainingIndex === 5) {
+            train_episodes += (dir * 10); 
+            if (train_episodes < 10) train_episodes = 10;
+            if (train_episodes > 2000) train_episodes = 2000;
+        }
+
+        // NEW: Baseline (Index 6)
+        if (trainingIndex === 6) {
+            train_baseline += (dir * 5); // Adjust by 5 points
+            if (train_baseline < -1) train_baseline = -1; // -1 means "Auto"
+        }
+    }
+
+    // Selection (Enter)
+    if (e.key === "Enter") {
+        // Load File
+        if (trainingIndex === 0) {
+            document.getElementById('coachLoader').click();
+        }
+        
+        // Start Training (Now Index 7)
+        if (trainingIndex === 7) {
+            if (!AICoach.baseJSON) {
+                alert("Please Load a Trainee File First!");
+                return;
+            }
+            
+            // 1. Set the game state flag FIRST
+            gameState = "tournament"; 
+            
+            // 2. Init the Coach logic (but do NOT start simulation yet)
+            const oppKeys = train_opponents.map(i => keys[i]);
+            
+            AICoach.initTournamentTraining(
+                AICoach.baseJSON, 
+                oppKeys, 
+                train_rounds, 
+                train_episodes,
+                train_baseline // <--- Passing the new baseline setting
+            );
+
+            // 3. Asynchronous Kickstart
+            // We use setTimeout to yield control to the browser for 50ms.
+            // This allows the browser to render the "Training Report" screen ONE TIME
+            // before the CPU-heavy Warp Engine locks up the thread.
+            setTimeout(() => {
+                AICoach.startEpisode(); 
+            }, 50);
+        }
+    }
+
+    // Exit
+    if (e.key === "Escape") {
+        gameState = "menu";
+    }
+}
+
+
+
+
+
+function drawTrainingMenu() {
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    // Title
+    ctx.fillStyle = "#7aa2f7"; 
+    ctx.font = "bold 40px Arial";
+    ctx.fillText("AI TRAINING CAMP", W / 2, 60);
+
+    const keys = Object.keys(Strategies);
+    ctx.font = "20px Arial";
+    
+    // Helper to draw rows
+    const drawRow = (idx, label, value) => {
+        const y = 140 + (idx * 50);
+        
+        // Highlight Box
+        if (idx === trainingIndex) {
+            ctx.fillStyle = "#2255ff";
+            ctx.fillRect(W/2 - 300, y - 25, 600, 40);
+            ctx.fillStyle = "#fff";
+        } else {
+            ctx.fillStyle = "#bbb";
+        }
+
+        // Draw Text
+        ctx.textAlign = "left";
+        ctx.fillText(label, W/2 - 280, y);
+        
+        ctx.textAlign = "right";
+        ctx.fillText(value, W/2 + 280, y);
+    };
+
+    // 0. Load Trainee
+    drawRow(0, "Trainee File:", train_loadedTeamName);
+
+    // 1-3. Opponents
+    drawRow(1, "Opponent 1:", Strategies[keys[train_opponents[0]]].teamName);
+    drawRow(2, "Opponent 2:", Strategies[keys[train_opponents[1]]].teamName);
+    drawRow(3, "Opponent 3:", Strategies[keys[train_opponents[2]]].teamName);
+
+    // 4. Rounds
+    drawRow(4, "Tourney Rounds:", train_rounds);
+
+    // 5. Episodes
+    drawRow(5, "Total Episodes:", train_episodes);
+
+    // 6. NEW: Baseline Setting
+    const blText = (train_baseline === -1) ? "Auto (Ep 1)" : train_baseline + " Pts";
+    drawRow(6, "Min Baseline:", blText);
+
+    // 7. BEGIN BUTTON (Now at Index 7)
+    const startY = 140 + (7 * 50) + 20;
+    if (trainingIndex === 7) {
+        ctx.fillStyle = "#00ff00"; // Green Highlight
+        ctx.fillRect(W/2 - 100, startY - 25, 200, 50);
+        ctx.fillStyle = "#000";
+    } else {
+        ctx.fillStyle = "#333";
+        ctx.fillRect(W/2 - 100, startY - 25, 200, 50);
+        ctx.fillStyle = "#fff";
+    }
+    ctx.textAlign = "center";
+    ctx.font = "bold 24px Arial";
+    ctx.fillText("BEGIN", W/2, startY);
+
+    // Footer
+    ctx.fillStyle = "#666";
+    ctx.font = "14px Arial";
+    ctx.fillText("ENTER to Select | LEFT/RIGHT to Adjust | ESC to Exit", W/2, H - 30);
+}
+
+
+
+
+
+function drawOptionsMenu() {
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    ctx.fillStyle = "#fff";
+    ctx.font = "40px Arial";
+    ctx.fillText("GAME SETUP", W / 2, 80);
+
+    ctx.font = "24px Arial";
+    
+    // Helper to get names safely
+    const keys = Object.keys(Strategies);
+    const s0 = keys.length ? Strategies[keys[team0Index % keys.length]] : null;
+    const s1 = keys.length ? Strategies[keys[team1Index % keys.length]] : null;
+
+
+    // Display "Team Name (Behavior)"
+    const name0 = s0 ? `${s0.teamName}` : "None";
+    const name1 = s1 ? `${s1.teamName}` : "None";
+    // Optional: Add behavior in small text or brackets if you want:
+    // const name0 = s0 ? `${s0.teamName} (${s0.behaviorName})` : "None";
+
+
+    // 1. Skaters
+    ctx.fillStyle = (optionsIndex === 0) ? "#2255ff" : "#bbb";
+    ctx.fillText(`Skaters: < ${OPT_SKATERS} >`, W / 2, 180);
+
+    // 2. Human Team
+    let teamName = "AI vs AI";
+    if (OPT_HUMAN_TEAM === 0) teamName = "Play as Blue";
+    if (OPT_HUMAN_TEAM === 1) teamName = "Play as Red";
+    ctx.fillStyle = (optionsIndex === 1) ? "#2255ff" : "#bbb";
+    ctx.fillText(`Control: < ${teamName} >`, W / 2, 240);
+
+    // 3. Blue Strategy
+    ctx.fillStyle = (optionsIndex === 2) ? "#2255ff" : "#bbb";
+    ctx.fillText(`Blue Team: < ${name0} >`, W / 2, 320);
+
+    // 4. Red Strategy
+    ctx.fillStyle = (optionsIndex === 3) ? "#ff2222" : "#bbb";
+    ctx.fillText(`Red Team: < ${name1} >`, W / 2, 380);
+
+    // 5. Back
+    ctx.fillStyle = (optionsIndex === 4) ? "#fff" : "#bbb";
+    ctx.fillText("START GAME", W / 2, 480);
+    
+    ctx.fillStyle = "#666";
+    ctx.font = "16px Arial";
+    ctx.fillText("Left/Right to Change | Enter to Select", W / 2, H - 40);
+}
+
+function handleOptionsInput(e) {
+    const keys = Object.keys(Strategies);
+    const total = keys.length;
+
+    if (e.key === "ArrowUp") {
+        optionsIndex = (optionsIndex - 1 + optionsItems.length) % optionsItems.length;
+    }
+    if (e.key === "ArrowDown") {
+        optionsIndex = (optionsIndex + 1) % optionsItems.length;
+    }
+    
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        const dir = (e.key === "ArrowRight") ? 1 : -1;
+
+        if (optionsIndex === 0) { // Skaters
+            OPT_SKATERS += dir;
+            if (OPT_SKATERS < 1) OPT_SKATERS = 5;
+            if (OPT_SKATERS > 5) OPT_SKATERS = 1;
+        }
+        if (optionsIndex === 1) { // Human
+            OPT_HUMAN_TEAM += dir;
+            if (OPT_HUMAN_TEAM > 1) OPT_HUMAN_TEAM = -1;
+            if (OPT_HUMAN_TEAM < -1) OPT_HUMAN_TEAM = 1;
+        }
+        if (optionsIndex === 2 && total > 0) { // Blue Strategy
+            team0Index = (team0Index + dir + total) % total;
+        }
+        if (optionsIndex === 3 && total > 0) { // Red Strategy
+            team1Index = (team1Index + dir + total) % total;
+        }
+    }
+
+    if (e.key === "Enter") {
+        if (optionsIndex === 4) { // Start/Back
+            activateMenuItem("New Game"); // Start immediately from options
+        }
+    }
+    if (e.key === "Escape") {
+        gameState = "menu";
+    }
+}
+
+
+
+// =========================================================
+// TEAM GLOBALS
+// =========================================================
+
+// =========================================================
+// GAME CLOCK AND SCORE GLOBALS
+// =========================================================
+const GAME_DURATION_SECONDS = 180; // seconds
+let timeRemaining = GAME_DURATION_SECONDS;
+let lastGameTimeUpdate = performance.now();
+
+// MULTI-PERIOD SYSTEM
+let currentPeriod = 1;
+const TOTAL_PERIODS = 3;
+const PERIOD_LENGTH_SECONDS = 180; // same as GAME_DURATION_SECONDS
+
+
+// ==========================================
+// INSTANT REPLAY SYSTEM
+// ==========================================
+const REPLAY_BUFFER_SIZE = 300; // 5 seconds of history (60fps * 5)
+const replayBuffer = [];        // Stores the frames
+let isReplaying = false;        // Are we watching a replay?
+let replayIndex = 0;            // Current frame of replay
+let replayFinishedCallback = null; // Function to run after replay ends
+
+
+// =========================================================
+// PENDING ROSTER CHANGES (Safe Mode)
+// =========================================================
+let pendingRosterChanges = { team0: 0, team1: 0 }; // Stores +1, -1, etc.
+const MAX_SKATERS = 5;
+const MIN_SKATERS = 0;
+
+
+
+
+
+
+let periodMessage = ""; 
+let periodMessageUntil = 0;
+
+
+let faceoffPauseUntil = 0;   // timestamp in ms
+
+
+
+let scoreTeam0 = 0;
+let scoreTeam1 = 0;
+
+let lastGoalTeam = null;
+let isSuddenDeathGoal = false;
+
+let puckStealCooldown = 0;
+
+let netPinTimer = 0; // Tracks how long a player is stuck on the net
+
+let goalieFreezeTimer = 0;
+
+let shootIndicator = "red";   // "red" | "yellow" | "green"
+let shootReason = "";
+
+let roleLockTimer = 0;   // frames of role lock (0 = off)
+
+let TEAM0_COLOR = "#3392ff";
+let TEAM0_COLOR_HAS_PUCK = "#006deb";
+
+let TEAM1_COLOR = "#ff6a3c";
+let TEAM1_COLOR_HAS_PUCK = "#de3b00"; 
+
+// Strategy Keys for the Menu
+let availableStrategies = []; // Will be populated in loop
+let team0Index = 0;
+let team1Index = 0;
+
+
+let DEBUG_ROLES = false;   // set false for normal jerseys
+
+
+let goalResetTimer = 0;   // frames until puck resets
+
+let ticksSinceLastGoal = 0;
+const FAILSAFE_MAX_TICKS = 10000; // adjust based on stepsPerTick
+
+// ADD these near 'goalResetTimer', 'lastGoalTeam', etc.
+let whistleEndTimer = null; // Time when the whistle pause ends
+let whistleMessage = "";    // Message to display during whistle
+let goalieHarassed = false;  // Flag to avoid spam-whistling
+let goalieLocked = false;
+let harassmentStart = 0;
+let goalieDumpAttempts = 0;
+let deadPuckTimer = 0;
+
+
+
+// OFFSIDE GLOBALS
+let offsideState = {
+    active: false,    // Is a delayed offside currently happening?
+    team: null,       // Which team is offside? (0 or 1)
+    warningTimer: 0   // For flashing the text
+};
+
+const BLUE_LINE_OFFSET = 110; // RX +/- 110
+
+
+
+
+document.addEventListener("keydown", (e) => {
+    // 1. Main Menu Inputs
+    if (gameState === "menu") {
+        if (e.key === "ArrowUp") {
+            menuIndex = (menuIndex - 1 + menuItems.length) % menuItems.length;
+        }
+        if (e.key === "ArrowDown") {
+            menuIndex = (menuIndex + 1) % menuItems.length;
+        }
+        if (e.key === "Enter") {
+            activateMenuItem(menuItems[menuIndex]);
+        }
+        return;
+    }
+
+    // 2. Options Menu Inputs
+    if (gameState === "options") {
+        handleOptionsInput(e);
+        return;
+    }
+
+    if (gameState === "training_menu") {
+        handleTrainingInput(e);
+        return;
+    }
+
+});
+
+
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+document.addEventListener('keydown', e => {
+    if (e.key === 'f' || e.key === 'F11') {
+        e.preventDefault();
+        if (!document.fullscreenElement) {
+            document.documentElement.requestFullscreen();
+        } else {
+            document.exitFullscreen();
+        }
+    }
+});
+
+document.addEventListener("keydown", (e) => {
+    if (e.key === 't') {
+        TRAINING_MODE = !TRAINING_MODE;
+        // console.log("TRAINING_MODE =", TRAINING_MODE);
+
+        // when turning training mode ON, restart the training loop
+        if (TRAINING_MODE) trainingLoop();
+    }
+});
+
+document.addEventListener("keydown", e => {
+    if (e.key === 'r') {
+        TRAIN_RENDER = !TRAIN_RENDER;
+        // console.log("TRAIN_RENDER =", TRAIN_RENDER);
+    }
+});
+
+document.addEventListener("keydown", e => {
+    if (e.key === 'i') {
+        // console.log("Inputs for player 1:", buildAIInputs(players[0]));
+    }
+    if (e.key === 'o') {
+        const ins = buildAIInputs(players[0]);
+        // console.log("Outputs for player 1:", aiForwardPass(ins, players[0].brain));
+    }
+});
+
+document.addEventListener("keydown", (e) => {
+    if (e.key === 'w') {
+        // 1. If Tournament is running, toggle ITS watch mode
+        if (gameState === 'tournament') {
+            if (typeof Tournament !== 'undefined') {
+                Tournament.toggleWatchMode();
+            }
+            return;
+        }
+
+        // 2. Otherwise toggle standard Training watch mode
+        WATCH_MODE = !WATCH_MODE;
+        // console.log("WATCH_MODE:", WATCH_MODE);
+    }
+});
+
+window.addEventListener("keydown", e => {
+    if (e.key === "d") DEBUG_ROLES = !DEBUG_ROLES;
+});
+
+
+
+document.addEventListener("keydown", e => {
+    if (e.key === 'p' || e.key === 'P') {
+        if (gameState === 'playing' || gameState === 'training') {
+            isPaused = !isPaused;
+            // Prevent time jumps when unpausing
+            if (!isPaused) {
+                lastTime = performance.now();
+                lastGameTimeUpdate = performance.now();
+            }
+        }
+    }
+});
+
+
+
+document.addEventListener("keydown", (e) => {
+    // -----------------------------------------------------
+    // 1. GAME OVER STATE (Your custom logic)
+    // -----------------------------------------------------
+    if (gameState === "gameover") {
+        if (e.key === "Escape") {
+            // Ignore ESC to preserve fullscreen (as you requested)
+            return; 
+        }
+        // Any other key returns to menu
+        gameState = "menu";
+        return;
+    }
+
+    // -----------------------------------------------------
+    // 2. ESCAPE KEY NAVIGATION (For all other states)
+    // -----------------------------------------------------
+    if (e.key === "Escape") {
+        
+        // A. Tournament Results Screen -> Back to Menu
+        if (gameState === "tournament_over") {
+            gameState = "menu";
+            // Clean up the results overlay
+            return;
+        }
+
+        // B. Options Menu -> Back to Main Menu
+        if (gameState === "options") {
+            gameState = "menu";
+            menuIndex = 0;
+            return;
+        }
+
+        // C. Playing -> Quit to Menu
+        // (This acts as your "Pause/Quit" button)
+        gameState = "menu";
+        menuIndex = 0;
+    }
+});
+
+
+
+// =========================================================
+// ROSTER CONTROL INPUTS (Keys 1, 2, 9, 0)
+// =========================================================
+document.addEventListener("keydown", (e) => {
+    // Only allow these controls during active game modes
+    if (gameState === "playing" || gameState === "practice" || gameState === "training") {
+
+        // Count current actual skaters so we know limits
+        const t0Count = players.filter(p => p.team === 0 && p.type === "skater").length;
+        const t1Count = players.filter(p => p.team === 1 && p.type === "skater").length;
+
+        // --- TEAM 0 (BLUE) ---
+        // Key 1: Queue Removal (-1 Player)
+        if (e.key === "1") {
+            // Check: (Current Count) + (Pending Changes) - 1 must be > Min
+            if (t0Count + pendingRosterChanges.team0 > MIN_SKATERS) {
+                pendingRosterChanges.team0--;
+                // console.log("Queueing Blue Removal. Pending:", pendingRosterChanges.team0);
+            }
+        }
+        // Key 2: Queue Add (+1 Player)
+        if (e.key === "2") {
+            // Check: (Current Count) + (Pending Changes) + 1 must be < Max
+            if (t0Count + pendingRosterChanges.team0 < MAX_SKATERS) {
+                pendingRosterChanges.team0++;
+                // console.log("Queueing Blue Add. Pending:", pendingRosterChanges.team0);
+            }
+        }
+
+        // --- TEAM 1 (RED) ---
+        // Key 9: Queue Removal (-1 Player)
+        if (e.key === "9") {
+            if (t1Count + pendingRosterChanges.team1 > MIN_SKATERS) {
+                pendingRosterChanges.team1--;
+                // console.log("Queueing Red Removal. Pending:", pendingRosterChanges.team1);
+            }
+        }
+        // Key 0: Queue Add (+1 Player)
+        if (e.key === "0") {
+            if (t1Count + pendingRosterChanges.team1 < MAX_SKATERS) {
+                pendingRosterChanges.team1++;
+                // console.log("Queueing Red Add. Pending:", pendingRosterChanges.team1);
+            }
+        }
+    }
+});
+
+
+
+
+const W = canvas.width;
+const H = canvas.height;
+
+// Load rink image
+const rinkImg = new Image();
+rinkImg.src = "rink_background.png";
+
+// Offscreen buffer
+const offscreenCanvas = document.createElement("canvas");
+offscreenCanvas.width = W;
+offscreenCanvas.height = H;
+const offctx = offscreenCanvas.getContext("2d");
+
+// =========================================================
+// RINK GEOMETRY
+// =========================================================
+const RINK_W = 800;
+const RINK_H = 340;
+const RINK_X = (W - RINK_W) / 2; // 100
+const RINK_Y = 150;
+
+
+
+const R = 100;
+const STEPS = 6;
+
+ctx.imageSmoothingEnabled = false;
+
+// TRUE RINK CENTER
+const RX = RINK_X + RINK_W/2; // 500
+const RY = RINK_Y + RINK_H/2; // 320
+
+let team0AttacksRight = true;  // Flip on every period end
+
+// ——————————————————————————————————————————————
+// CRITICAL FIX: ALL PLAYER C HELPERS — MUST BE HERE
+// ——————————————————————————————————————————————
+const LEFT_BLUE_LINE  = RX - 110;
+const RIGHT_BLUE_LINE = RX + 110;
+
+function getPuckZone(team) {
+    const dl = defendsLeft(team);  // *** NEW ***
+    if (dl) {
+        if (puck.x < LEFT_BLUE_LINE)  return 'own';
+        if (puck.x > RIGHT_BLUE_LINE) return 'opp';
+        return 'neutral';
+    } else {
+        if (puck.x > RIGHT_BLUE_LINE) return 'own';
+        if (puck.x < LEFT_BLUE_LINE)  return 'opp';
+        return 'neutral';
+    }
+}
+
+function getBlueLinePosition(team, puckY) {
+    const dl = defendsLeft(team);  // *** NEW ***
+    const ownBlueX = dl ? LEFT_BLUE_LINE + 30 : RIGHT_BLUE_LINE - 30;
+    const sideOffset = (puckY < RY ? 1 : -1) * 90;
+    return {
+        tx: ownBlueX,
+        ty: clamp(RY + sideOffset, RINK_MIN_Y + 50, RINK_MAX_Y - 50),
+        action: "none"
+    };
+}
+
+// THIS IS THE ONE THAT WAS MISSING / BROKEN
+function lateralClear(p, dir) {
+    const testX = p.x + dir * 140;
+    for (const o of players) {
+        if (o.team === p.team || o.type === "goalie") continue;
+        if (Math.abs(o.x - testX) < 80 && Math.abs(o.y - p.y) < 130) {
+            return false;
+        }
+    }
+    return true;
+}
+
+
+
+// Re-using the roster positions for spawn coordinates
+const ROSTER_POSITIONS = [
+    { role: "C",  x: 20, y: 0 },
+    { role: "RW", x: 20, y: 55 },   
+    { role: "LD", x: 100, y: -55 }, 
+    { role: "LW", x: 20, y: -55 },  
+    { role: "RD", x: 100, y: 55 }   
+];
+
+function applyPendingRosterChanges() {
+    // 1. Process Team 0
+    while (pendingRosterChanges.team0 !== 0) {
+        if (pendingRosterChanges.team0 > 0) {
+            addSkater(0);
+            pendingRosterChanges.team0--;
+        } else {
+            removeSkater(0);
+            pendingRosterChanges.team0++;
+        }
+    }
+
+    // 2. Process Team 1
+    while (pendingRosterChanges.team1 !== 0) {
+        if (pendingRosterChanges.team1 > 0) {
+            addSkater(1);
+            pendingRosterChanges.team1--;
+        } else {
+            removeSkater(1);
+            pendingRosterChanges.team1++;
+        }
+    }
+    
+    // 3. Re-assign roles immediately after changes
+    assignRolesForTeam(0);
+    assignRolesForTeam(1);
+}
+
+function addSkater(teamId) {
+    const currentSkaters = players.filter(p => p.team === teamId && p.type === "skater");
+    if (currentSkaters.length >= MAX_SKATERS) return;
+
+    const newIndex = currentSkaters.length;
+    const def = ROSTER_POSITIONS[newIndex];
+    
+    // Generate Unique ID
+    let maxId = 0;
+    players.forEach(p => maxId = Math.max(maxId, p.id));
+    
+    const p = makePlayer({
+        id: maxId + 1, 
+        team: teamId, 
+        type: "skater", 
+        isHuman: false,
+        x: (teamId === 0) ? RX - def.x : RX + def.x, 
+        y: RY + def.y, 
+        angle: (teamId === 0) ? 0 : Math.PI
+    });
+
+    p.role = def.role; 
+    p.homePos = { x: p.x, y: p.y }; 
+    initPlayerBrain(p);
+    players.push(p);
+}
+
+function removeSkater(teamId) {
+    const currentSkaters = players.filter(p => p.team === teamId && p.type === "skater");
+    if (currentSkaters.length <= MIN_SKATERS) return;
+
+    const victim = currentSkaters[currentSkaters.length - 1];
+    
+    // Safety: Release puck if held
+    if (puck.ownerId === victim.id) {
+        puck.ownerId = null;
+        puck.vx = 0; puck.vy = 0;
+    }
+
+    const idx = players.indexOf(victim);
+    if (idx > -1) players.splice(idx, 1);
+}
+
+
+
+
+function buildRinkPolygon() {
+    const w = RINK_W, h = RINK_H, r = R, s = STEPS;
+    const pts = [];
+
+    pts.push({x:r, y:0});
+    pts.push({x:w-r, y:0});
+
+    {   // top-right
+        const cx=w-r, cy=r;
+        for(let i=1;i<=s;i++){
+            const a=1.5*Math.PI + (i/s)*(0.5*Math.PI);
+            pts.push({x:cx+Math.cos(a)*r, y:cy+Math.sin(a)*r});
+        }
+    }
+
+    pts.push({x:w, y:h-r});
+
+    {   // bottom-right
+        const cx=w-r, cy=h-r;
+        for(let i=1;i<=s;i++){
+            const a=(i/s)*(Math.PI/2);
+            pts.push({x:cx+Math.cos(a)*r, y:cy+Math.sin(a)*r});
+        }
+    }
+
+    pts.push({x:w-r, y:h});
+    pts.push({x:r,   y:h});
+
+    {   // bottom-left
+        const cx=r, cy=h-r;
+        for(let i=1;i<=s;i++){
+            const a=Math.PI/2 + (i/s)*(Math.PI/2);
+            pts.push({x:cx+Math.cos(a)*r, y:cy+Math.sin(a)*r});
+        }
+    }
+
+    pts.push({x:0, y:h-r});
+    pts.push({x:0, y:r});
+
+    {   // top-left
+        const cx=r, cy=r;
+        for(let i=1;i<=s;i++){
+            const a=Math.PI + (i/s)*(Math.PI/2);
+            pts.push({x:cx+Math.cos(a)*r, y:cy+Math.sin(a)*r});
+        }
+    }
+
+    return pts;
+}
+
+const rinkPoly = buildRinkPolygon();
+
+// =========================================================
+// COMPUTE RINK BOUNDING BOX FROM POLYGON
+// =========================================================
+let RINK_MIN_X = Infinity;
+let RINK_MAX_X = -Infinity;
+let RINK_MIN_Y = Infinity;
+let RINK_MAX_Y = -Infinity;
+
+for (const pt of rinkPoly) {
+    const gx = pt.x + RINK_X;
+    const gy = pt.y + RINK_Y;
+
+    if (gx < RINK_MIN_X) RINK_MIN_X = gx;
+    if (gx > RINK_MAX_X) RINK_MAX_X = gx;
+    if (gy < RINK_MIN_Y) RINK_MIN_Y = gy;
+    if (gy > RINK_MAX_Y) RINK_MAX_Y = gy;
+}
+
+
+
+// Build wall + net segments with precomputed normals
+let rinkSegments = [];
+for (let i=0;i<rinkPoly.length;i++){
+    const p1 = rinkPoly[i];
+    const p2 = rinkPoly[(i+1)%rinkPoly.length];
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const len = Math.sqrt(dx*dx + dy*dy);
+    rinkSegments.push({
+        x1: p1.x + RINK_X,
+        y1: p1.y + RINK_Y,
+        x2: p2.x + RINK_X,
+        y2: p2.y + RINK_Y,
+        type: "wall",
+        nx: len > 0 ? -dy / len : 0,
+        ny: len > 0 ? dx / len : 0,
+        len: len
+    });
+}
+
+// Goals & nets
+// Goals & nets
+let goal1 = RX - 325;
+let goal2 = RX + 325;
+
+const GOALIE_OFFSET_INSIDE = 14;
+
+const NET_H = 45;
+const NET_D = 25;
+
+const topY = RINK_Y + (RY - (NET_H/2) - RINK_Y);
+const botY = topY + NET_H;
+
+
+
+
+
+
+
+
+
+// =========================================================
+// INPUT
+// =========================================================
+const keys = {
+    ArrowUp:false,
+    ArrowDown:false,
+    ArrowLeft:false,
+    ArrowRight:false,
+    Control:false
+};
+
+document.addEventListener("keydown", e => { 
+    if (keys[e.key] !== undefined) keys[e.key] = true; 
+});
+document.addEventListener("keyup",   e => { 
+    if (keys[e.key] !== undefined) keys[e.key] = false; 
+});
+
+// =========================================================
+// UTIL
+// =========================================================
+
+
+
+
+function isResetActive() {
+    return goalResetTimer !== null || whistleEndTimer !== null;
+}
+
+function startFaceoffPause() {
+    faceoffPauseUntil = performance.now() + 1000; // 1 second
+}
+
+function isGoalCelebrationActive() {
+    const now = performance.now();
+    return goalResetTimer !== null && now < goalResetTimer;
+}
+
+
+function checkDeadPuck() {
+    // Reset if anyone controls it
+    if (puck.ownerId !== null) {
+        deadPuckTimer = 0;
+        return;
+    }
+
+    const puckSpeed = Math.hypot(puck.vx, puck.vy);
+
+    // If practically stopped (stuck against wall/mesh)
+    if (puckSpeed < 0.1) {
+        deadPuckTimer++;
+        // 5 seconds * 60 fps = 300 frames
+        if (deadPuckTimer > 300) {
+            whistle("Stoppage: Dead Puck");
+            deadPuckTimer = 0;
+        }
+    } else {
+        deadPuckTimer = 0;
+    }
+}
+
+
+
+// =========================================================
+// COLLISIONS (RINK)
+// =========================================================
+function collideWithRink(obj, radius) {
+    for (const s of rinkSegments) {
+        if (s.len === 0) continue;
+
+        const dx = obj.x - s.x1;
+        const dy = obj.y - s.y1;
+        const t = (dx * (s.x2 - s.x1) + dy * (s.y2 - s.y1)) / (s.len * s.len);
+        const clamped = Math.max(0, Math.min(1, t));
+
+        const cx = s.x1 + clamped * (s.x2 - s.x1);
+        const cy = s.y1 + clamped * (s.y2 - s.y1);
+
+        const nx = obj.x - cx;
+        const ny = obj.y - cy;
+        const dist2 = nx * nx + ny * ny;
+
+        if (dist2 < radius * radius && dist2 > 0) {
+            const dist = Math.sqrt(dist2);
+            const unx = nx / dist;
+            const uny = ny / dist;
+
+            obj.x = cx + unx * radius;
+            obj.y = cy + uny * radius;
+
+            let rest = 0.97;
+            if (s.type === "goal") rest = 0.2;
+
+            const dot = obj.vx * unx + obj.vy * uny;
+            obj.vx -= (1 + rest) * dot * unx;
+            obj.vy -= (1 + rest) * dot * uny;
+
+            return true;
+        }
+    }
+    return false;
+}
+
+
+// =========================================================
+// COLLISIONS (PUCK vs WALLS)
+// =========================================================
+function collideCircleWithRink(obj, radius, restitution = 0.8) {
+    let collided = false;
+
+    for (const seg of rinkSegments) {
+        const x1 = seg.x1, y1 = seg.y1;
+        const x2 = seg.x2, y2 = seg.y2;
+
+        const dx = x2 - x1;
+        const dy = y2 - y1;
+        const segLen2 = dx * dx + dy * dy;
+        if (segLen2 === 0) continue;
+
+        // project point onto segment
+        const t = ((obj.x - x1) * dx + (obj.y - y1) * dy) / segLen2;
+        const clamped = Math.max(0, Math.min(1, t));
+        const cx = x1 + clamped * dx;
+        const cy = y1 + clamped * dy;
+
+        const nx = obj.x - cx;
+        const ny = obj.y - cy;
+        const dist2 = nx * nx + ny * ny;
+        const minDist = radius;
+
+        if (dist2 < minDist * minDist && dist2 > 0.000001) {
+            const dist = Math.sqrt(dist2);
+            const unx = nx / dist;
+            const uny = ny / dist;
+
+            // push out to exactly minDist
+            obj.x = cx + unx * minDist;
+            obj.y = cy + uny * minDist;
+
+            // reflect velocity
+            const dot = obj.vx * unx + obj.vy * uny;
+            obj.vx = obj.vx - 2 * dot * unx;
+            obj.vy = obj.vy - 2 * dot * uny;
+
+            // rink vs goal restitution (same idea as good goalie)
+            let rest = restitution;
+            if (seg.type === "goal") rest = 0.2;
+
+            obj.vx *= rest;
+            obj.vy *= rest;
+
+            // =========================================================
+            // *** NEW: PASS TRACKING INTERRUPT ***
+            // If the puck hits a wall, the "Direct Pass" failed.
+            // =========================================================
+            if (obj === puck && puck.passTargetId !== null) {
+                puck.passTargetId = null; 
+            }
+            // =========================================================
+
+            collided = true;
+            break; // one wall is enough
+        }
+    }
+
+    return collided;
+}
+
+
+// =========================================================
+// UNIFIED PLAYER ARCHITECTURE
+// =========================================================
+function makePlayer({id, team, type, isHuman, x, y, angle}) {
+    const p = {
+        id,
+        team,
+        type,
+        isHuman,
+        x,
+        y,
+        angle,
+        vx: 0,
+        vy: 0,
+        size: (type === "goalie") ? 14 : 12,
+        maxSpeed: (type === "goalie") ? 1.6 : 2.3,
+        turnRate: (type === "goalie") ? 0.0 : 0.06,
+        friction: 0.018,
+        holdTimer: 0,
+        shootCooldown: 0,
+        saves: 0, 
+        saveCooldown: 0,
+        passCooldown: 0,
+        stunTimer: 0,
+        strideTick: 0,
+        isAccelerating: false,
+
+        brain: {
+            inputSize: 0,
+            hiddenSize: 0,
+            outputSize: 0,
+            w1: null,
+            w2: null,
+            b1: null,
+            b2: null
+        },
+
+        reward: 0
+    };
+
+    // store spawn locations ONCE
+    p.spawnX = x;
+    p.spawnY = y;
+    p.spawnAngle = angle;
+
+    return p;
+}
+
+
+
+let players = []; // Changed from const to let so we can reset it
+
+// Helper to calculate spawn positions based on index (0 to 4)
+function getSpawnOffsets(index) {
+    // 0=Center, 1=LeftWing, 2=RightWing, 3=LeftD, 4=RightD
+    if (index === 0) return { x: 20, y: 0 };
+    if (index === 1) return { x: 20, y: -55 };
+    if (index === 2) return { x: 20, y: 55 };
+    if (index === 3) return { x: 100, y: -55 };
+    if (index === 4) return { x: 100, y: 55 };
+    return { x: 120, y: 0 }; // Fallback for 6+
+}
+
+// =========================================================
+// UNIFIED TEAM INITIALIZATION (SCALABLE 3v3 -> 5v5)
+// =========================================================
+
+function initTeams() {
+    players = []; 
+    let idCounter = 1;
+
+    // DEFINITION: The order in which players are added based on OPT_SKATERS
+    const ROSTER_BUILD_ORDER = [
+        { role: "C",  x: 20, y: 0 },
+        { role: "RW", x: 20, y: 55 },   
+        { role: "LD", x: 100, y: -55 }, 
+        { role: "LW", x: 20, y: -55 },  
+        { role: "RD", x: 100, y: 55 }   
+    ];
+
+    // --- Create Team 0 (Blue/Left) ---
+    for (let i = 0; i < OPT_SKATERS; i++) {
+        const def = ROSTER_BUILD_ORDER[i] || ROSTER_BUILD_ORDER[0];
+        const p = makePlayer({
+            id: idCounter++, 
+            team: 0, 
+            type: "skater", 
+            isHuman: (OPT_HUMAN_TEAM === 0 && i === 0),
+            x: RX - def.x, 
+            y: RY + def.y, 
+            angle: 0
+        });
+        p.role = def.role; 
+        p.homePos = { x: p.x, y: p.y }; 
+        players.push(p);
+    }
+
+    // --- Create Team 1 (Red/Right) ---
+    for (let i = 0; i < OPT_SKATERS; i++) {
+        const def = ROSTER_BUILD_ORDER[i] || ROSTER_BUILD_ORDER[0];
+        const p = makePlayer({
+            id: idCounter++, 
+            team: 1, 
+            type: "skater", 
+            isHuman: (OPT_HUMAN_TEAM === 1 && i === 0),
+            x: RX + def.x,   
+            y: RY + def.y,   
+            angle: Math.PI
+        });
+        p.role = def.role; 
+        p.homePos = { x: p.x, y: p.y };
+        players.push(p);
+    }
+
+    // --- Create Goalies ---
+    const g0 = makePlayer({ id: idCounter++, team: 0, type: "goalie", isHuman: false, x: goal1 + 18, y: RY, angle: 0 });
+    g0.role = "Goalie"; 
+    g0.homeX = g0.x; g0.homeY = g0.y; players.push(g0);
+
+    const g1 = makePlayer({ id: idCounter++, team: 1, type: "goalie", isHuman: false, x: goal2 - 18, y: RY, angle: Math.PI });
+    g1.role = "Goalie";
+    g1.homeX = g1.x; g1.homeY = g1.y; players.push(g1);
+
+    // --- Build Walls ---
+    buildSolidGoals();
+    buildGoalBlocksForPlayers();
+    
+    // --- Assign Brains ---
+
+    // GUARD CLAUSE: If Tournament is running, DO NOT touch the brains.
+    // The Tournament Engine has already assigned them.
+    if (gameState !== 'tournament') {
+
+        // 1. Refresh the list 
+        availableStrategies = Object.keys(Strategies);
+        
+        // 2. Get Selected IDs
+        if (availableStrategies.length > 0) {
+            const id0 = availableStrategies[team0Index % availableStrategies.length];
+            const id1 = availableStrategies[team1Index % availableStrategies.length];
+
+            // 3. Assign to Global Pointers
+            Team0_Strategy = Strategies[id0];
+            Team1_Strategy = Strategies[id1];
+
+            // 4. APPLY COLORS
+            if (Team0_Strategy.colors) {
+                TEAM0_COLOR = Team0_Strategy.colors.main;
+                TEAM0_COLOR_HAS_PUCK = Team0_Strategy.colors.secondary;
+            }
+            if (Team1_Strategy.colors) {
+                TEAM1_COLOR = Team1_Strategy.colors.main;
+                TEAM1_COLOR_HAS_PUCK = Team1_Strategy.colors.secondary;
+            }
+
+            // console.log(`✅ Matchup: ${Team0_Strategy.name} vs ${Team1_Strategy.name}`);
+        }
+    } // <--- Closing brace for the if statement
+
+} // <--- Closing brace for initTeams function
+
+
+
+
+
+
+
+// =========================================================
+// SKATER WALL CONSTRAINTS
+// =========================================================
+function enforcePlayerWalls(p) {
+    const r = p.size;
+
+    if (p.x < RINK_MIN_X + r) {
+        p.x = RINK_MIN_X + r;
+        p.vx *= -0.3;
+    }
+
+    if (p.x > RINK_MAX_X - r) {
+        p.x = RINK_MAX_X - r;
+        p.vx *= -0.3;
+    }
+
+    if (p.y < RINK_MIN_Y + r) {
+        p.y = RINK_MIN_Y + r;
+        p.vy *= -0.3;
+    }
+
+    if (p.y > RINK_MAX_Y - r) {
+        p.y = RINK_MAX_Y - r;
+        p.vy *= -0.3;
+    }
+}
+
+function puckEscapedRink() {
+    const r = puck.r;
+
+    return (
+        puck.x < RINK_MIN_X - r ||
+        puck.x > RINK_MAX_X + r ||
+        puck.y < RINK_MIN_Y - r ||
+        puck.y > RINK_MAX_Y + r
+    );
+}
+
+
+function handlePuckEscape() {
+    // Don't double-trigger while resetting
+    if (goalResetTimer) return;
+
+    // console.warn("Puck escaped rink — resetting.");
+    
+    whistle("Puck Out of Play")
+}
+
+
+
+
+
+
+function resetPlayersToSpawn() {
+    // 1. Reset Puck
+    puck.x = RX;
+    puck.y = RY;
+    puck.vx = 0;
+    puck.vy = 0;
+    puck.ownerId = null;
+
+    // 2. Reset Goalies (Go to Home Position)
+    for (const p of players) {
+        if (p.type === "goalie") {
+            p.x = p.homeX;
+            p.y = p.homeY;
+            // Face Center Ice
+            p.angle = Math.atan2(RY - p.y, RX - p.x);
+            p.vx = 0;
+            p.vy = 0;
+        }
+    }
+
+    // 3. Reset Skaters (Use the Master Faceoff Logic)
+    // This guarantees the Opening Faceoff is identical to the Period Resets.
+    doFaceoffReset();
+}
+
+
+
+
+function whistle(reason, durationMs = 2000) {
+    // Prevent triggering a new pause if the game is already stopped by a goal or whistle.
+    if (isResetActive()) return; 
+
+    // Reset current state variables that conflict with the whistle.
+    const owner = getPlayerById(puck.ownerId);
+    if (owner) {
+        puck.ownerId = null; // Release the puck
+        puck.vx = 0;
+        puck.vy = 0;
+    }
+    
+    // Set the whistle state
+    whistleMessage = reason;
+    whistleEndTimer = performance.now() + durationMs; 
+    
+    // Clear the goalie freeze timer, as the possession is ending
+    goalieFreezeTimer = 0; 
+    
+    // The actual faceoff will occur when 'loop' detects whistleEndTimer has passed.
+    // console.log("WHISTLE:", reason);
+}
+
+
+function checkNetPinning() {
+    // 1. Identify physical net locations
+    const leftNetX = Math.min(goal1, goal2);
+    const rightNetX = Math.max(goal1, goal2);
+
+    // 2. Define the "Grind Zone" dimensions relative to the net back
+    const zoneHeight = 40;
+    const zoneDepth = 30; // Distance behind the goal line
+
+    let inGrindZone = false;
+
+    // Check Left Net (Puck is physically behind the goal line)
+    if (puck.x < leftNetX && puck.x > leftNetX - zoneDepth) {
+        if (Math.abs(puck.y - RY) < zoneHeight) inGrindZone = true;
+    }
+
+    // Check Right Net (Puck is physically behind the goal line)
+    if (puck.x > rightNetX && puck.x < rightNetX + zoneDepth) {
+        if (Math.abs(puck.y - RY) < zoneHeight) inGrindZone = true;
+    }
+
+    // 3. Determine Effective Speed
+    // If owned, use owner's speed. If loose, use puck speed.
+    let currentSpeed = Math.hypot(puck.vx, puck.vy);
+    if (puck.ownerId !== null) {
+        const owner = getPlayerById(puck.ownerId);
+        if (owner) currentSpeed = Math.hypot(owner.vx, owner.vy);
+    }
+
+    // 4. Crowd Check (The "Scrum" Detector)
+    // Count how many players are within fighting distance (35px) of the puck
+    let playersInScrum = 0;
+    for (const p of players) {
+        if (Math.hypot(p.x - puck.x, p.y - puck.y) < 35) {
+            playersInScrum++;
+        }
+    }
+
+    // 5. EVALUATE
+    // Condition: Puck is in zone + Moving Slow + At least 2 players fighting for it
+    if (inGrindZone && currentSpeed < 1.5 && playersInScrum >= 2) {
+        // Initialize timer if not started
+        if (netPinTimer === 0) netPinTimer = performance.now();
+
+        // Trigger Whistle after 1.5 seconds
+        if (performance.now() - netPinTimer > 2500) {
+            whistle("Net Scrum Stoppage", 2000);
+            netPinTimer = 0;
+        }
+    } else {
+        // Reset timer if the scrum breaks up or puck leaves the zone
+        netPinTimer = 0;
+    }
+}
+
+
+function keepSkatersOutOfNet(p) {
+    // Goalies are allowed in the net; everyone else gets kicked out
+    if (p.type === "goalie") return;
+
+    // 1. Identify Net Locations
+    const leftNetX = Math.min(goal1, goal2);
+    const rightNetX = Math.max(goal1, goal2);
+
+    // 2. Define the "No-Go Zone"
+    // We allow them to step slightly onto the line (to poke at rebounds), 
+    // but not deep into the net.
+    const allowedDepth = 5; // How far past the line they can go
+    const netDepth = 40;    // The back of the net
+    const netHeight = 35;   // Distance from center (RY) to post
+
+    // --- CHECK LEFT NET ---
+    // If player is between the goal line and the back of the net
+    if (p.x < leftNetX + allowedDepth && p.x > leftNetX - netDepth) {
+        if (Math.abs(p.y - RY) < netHeight) {
+            // EJECT RIGHT
+            p.x = leftNetX + allowedDepth + 2; // Snap them to the ice
+            p.vx = Math.abs(p.vx) * 0.5 + 2.0; // Add strong rightward velocity
+        }
+    }
+
+    // --- CHECK RIGHT NET ---
+    if (p.x > rightNetX - allowedDepth && p.x < rightNetX + netDepth) {
+        if (Math.abs(p.y - RY) < netHeight) {
+            // EJECT LEFT
+            p.x = rightNetX - allowedDepth - 2; // Snap them to the ice
+            p.vx = -(Math.abs(p.vx) * 0.5 + 2.0); // Add strong leftward velocity
+        }
+    }
+}
+
+
+
+function checkGoalieHarassment() {
+    if (puck.ownerId === null) return false;
+
+    const goalie = getPlayerById(puck.ownerId);
+    if (!goalie || goalie.type !== "goalie") return false;
+
+    // Wider radius
+    let closeOpp = false;
+    for (const opp of players) {
+        if (opp.team !== goalie.team) {
+            const d = Math.hypot(opp.x - goalie.x, opp.y - goalie.y);
+            if (d < 22) {          // was 12 → way too small
+                closeOpp = true;
+                break;
+            }
+        }
+    }
+
+    // Not close → unlock immediately
+    if (!closeOpp) {
+        goalieLocked = false;
+        harassmentStart = 0;
+        return false;
+    }
+
+    // FIRST moment harassment begins
+    if (!goalieLocked) {
+        goalieLocked = true;
+        harassmentStart = performance.now();
+    }
+
+    // require long harassment before freeze
+    const HARASS_DELAY = 2000;  // milliseconds
+
+    puck.ownerId = goalie.id;
+    puck.vx = 0;
+    puck.vy = 0;
+
+    if (performance.now() - harassmentStart > HARASS_DELAY) {
+        whistle("Goalie Freezes Puck", 2500);
+    }
+
+    return true;
+}
+
+
+
+function enforceNetIntegrity(puck) {
+    // 1. Define Net Dimensions (Visual Match)
+    const goalYTop = topY; // The top post Y
+    const goalYBot = botY; // The bottom post Y
+    const netDepth = 25;   // How deep the net is
+    
+    // Left Net (Goal 1)
+    const leftGoalLine = Math.min(goal1, goal2);
+    const leftNetBack = leftGoalLine - netDepth;
+    
+    // Right Net (Goal 2)
+    const rightGoalLine = Math.max(goal1, goal2);
+    const rightNetBack = rightGoalLine + netDepth;
+
+    // 2. CHECK LEFT NET ILLEGAL ENTRY
+    // If puck is physically inside the Left Net box...
+    if (puck.y > goalYTop && puck.y < goalYBot && puck.x < leftGoalLine && puck.x > leftNetBack) {
+        
+        // ...BUT it is NOT a goal (game didn't reset), it means it's an illegal state.
+        // We push it OUT to the closest valid side (Top, Bottom, or Back).
+        
+        // Distances to escape
+        const dTop = Math.abs(puck.y - goalYTop);
+        const dBot = Math.abs(puck.y - goalYBot);
+        const dBack = Math.abs(puck.x - leftNetBack);
+        
+        // Find shortest escape route (Don't push forward into the goal line, that would score!)
+        const min = Math.min(dTop, dBot, dBack);
+        
+        if (min === dTop) {
+            puck.y = goalYTop - puck.r - 1; // Pop up
+            puck.vy = -Math.abs(puck.vy);   // Reflect velocity
+        } else if (min === dBot) {
+            puck.y = goalYBot + puck.r + 1; // Pop down
+            puck.vy = Math.abs(puck.vy);
+        } else {
+            puck.x = leftNetBack - puck.r - 1; // Pop back
+            puck.vx = -Math.abs(puck.vx);
+        }
+    }
+
+    // 3. CHECK RIGHT NET ILLEGAL ENTRY
+    // If puck is physically inside the Right Net box...
+    if (puck.y > goalYTop && puck.y < goalYBot && puck.x > rightGoalLine && puck.x < rightNetBack) {
+        
+        const dTop = Math.abs(puck.y - goalYTop);
+        const dBot = Math.abs(puck.y - goalYBot);
+        const dBack = Math.abs(puck.x - rightNetBack);
+        
+        const min = Math.min(dTop, dBot, dBack);
+        
+        if (min === dTop) {
+            puck.y = goalYTop - puck.r - 1;
+            puck.vy = -Math.abs(puck.vy);
+        } else if (min === dBot) {
+            puck.y = goalYBot + puck.r + 1;
+            puck.vy = Math.abs(puck.vy);
+        } else {
+            puck.x = rightNetBack + puck.r + 1; // Pop back (Right side)
+            puck.vx = Math.abs(puck.vx);
+        }
+    }
+}
+
+
+
+function detectPuckStuckInNet() {
+    // 1. Safety Check: If a goal was JUST scored this frame, do nothing.
+    if (isResetActive()) return false;
+
+    // 2. Define Precise Net Dimensions (Internal Volume)
+    // TIGHTER Y-RANGE: Strictly between the posts
+    // Posts are roughly RY +/- 23. We look strictly inside to avoid post-collisions triggering this.
+    const internalHeightHalf = 16; 
+    const minY = RY - internalHeightHalf;
+    const maxY = RY + internalHeightHalf;
+
+    // Optimization: If not vertically aligned with the net mouth, ignore.
+    if (puck.y < minY || puck.y > maxY) return false;
+
+    // 3. Define Depth & Buffer
+    const netDepth = 25;    // The back of the net
+    
+    // *** THE FIX: SAVE BUFFER ***
+    // We allow the puck to exist 6 pixels PAST the goal line without whistling.
+    // This accounts for goalie saves or the puck grazing the line.
+    const saveBuffer = 6;   
+
+    // --- LEFT NET (Goal 1) ---
+    // Inside = X is deeper than (Line - Buffer) BUT not past Back of Net
+    const leftGoalLine = Math.min(goal1, goal2);
+    const leftNetBack  = leftGoalLine - netDepth;
+
+    if (puck.x < (leftGoalLine - saveBuffer) && puck.x > leftNetBack) {
+        handlePuckStuck();
+        return true;
+    }
+
+    // --- RIGHT NET (Goal 2) ---
+    // Inside = X is deeper than (Line + Buffer) BUT not past Back of Net
+    const rightGoalLine = Math.max(goal1, goal2);
+    const rightNetBack  = rightGoalLine + netDepth;
+
+    if (puck.x > (rightGoalLine + saveBuffer) && puck.x < rightNetBack) {
+        handlePuckStuck();
+        return true;
+    }
+
+    return false;
+}
+
+function handlePuckStuck() {
+    // Stop puck instantly
+    puck.vx = 0;
+    puck.vy = 0;
+
+    // Force a dead-play reset just like after a goal or freeze
+    doGoalReset();  
+}
+
+
+
+
+
+
+function drawWhistleOverlay() {
+    // This assumes the canvas context 'ctx', width 'W', height 'H', and center 'RY' are globally available.
+    ctx.save();
+    ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
+    ctx.strokeStyle = "#111";
+    ctx.lineWidth = 4;
+    
+    const boxW = 500;
+    const boxH = 80;
+    const boxX = (W - boxW) / 2;
+    const boxY = RY - boxH / 2; // RY is the vertical center
+
+    // Draw background box
+    ctx.fillRect(boxX, boxY, boxW, boxH);
+    ctx.strokeRect(boxX, boxY, boxW, boxH);
+
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    ctx.fillStyle = "#333";
+    ctx.font = "bold 30px Arial";
+    ctx.fillText("WHISTLE!", W/2, boxY + 25);
+
+    ctx.font = "20px Arial";
+    ctx.fillText(whistleMessage, W/2, boxY + 55);
+
+    ctx.restore();
+}
+
+
+function ejectPuckFromOwner(owner) {
+    // Teleport the puck from the player's center to the stick tip
+    const dist = owner.size/2 + puck.r + 5;
+    puck.x = owner.x + Math.cos(owner.angle) * dist;
+    puck.y = owner.y + Math.sin(owner.angle) * dist;
+    
+    // Release ownership
+    puck.ownerId = null;
+}
+
+
+
+
+// =========================================================
+// PUCK OBJECT (Physics & Rendering)
+// =========================================================
+const puck = {
+    px: RX,
+    py: RY,
+    x: RX,
+    y: RY,
+    vx: 0,
+    vy: 0,
+    r: 1.5,
+    ownerId: null,
+    ignoreGoalieUntil: 0,
+
+    update() {
+        // Track previous position for collision logic
+        this.px = this.x;
+        this.py = this.y;
+        
+        const owner = getPlayerById(this.ownerId);
+
+        // =====================================================
+        // 1. HELD STATE (Virtual Stick)
+        // =====================================================
+        if (owner) {
+            // The puck is "inside" the player logically. 
+            // Player collision handles the boundaries.
+            this.x = owner.x;
+            this.y = owner.y;
+            this.vx = 0;
+            this.vy = 0;
+            this.ignoreGoalieUntil = 0;
+            return; // Skip physics
+        }
+
+        // =====================================================
+        // 2. LOOSE STATE (Physics Steps)
+        // =====================================================
+        const radius = this.r;
+        const moveLen = Math.hypot(this.vx, this.vy);
+
+        if (moveLen > 0) {
+            // Break movement into tiny steps to prevent tunneling through thin walls
+            const maxStep = radius; 
+            let steps = Math.ceil(moveLen / maxStep);
+            if (steps < 1) steps = 1;
+            
+            const stepVX = this.vx / steps;
+            const stepVY = this.vy / steps;
+
+            for (let i = 0; i < steps; i++) {
+                this.x += stepVX;
+                this.y += stepVY;
+
+                // --- A. ENVIRONMENT COLLISIONS ---
+                
+                // 1. Rink Walls (Bounciness 0.98)
+                let hit = collideCircleWithRink(this, radius, 0.98);
+
+                // 2. Goal Posts/Netting (If helper exists)
+                if (typeof resolveGoalCollisions === "function") {
+                     hit = resolveGoalCollisions(this) || hit; 
+                }
+
+                // If we hit a wall, stop this step loop to prevent getting stuck
+                if (hit) break;
+
+                // --- B. GOALIE INTERACTION ---
+                const now = performance.now();
+                
+                for (const g of players) {
+                    if (g.type !== "goalie") continue;
+                    if (this.ignoreGoalieUntil && now < this.ignoreGoalieUntil) continue;
+
+                    // Distance Check
+                    const d = Math.hypot(this.x - g.x, this.y - g.y);
+                    const minD = g.size/2 + this.r;
+
+                    if (d < minD && this.ownerId === null) {
+                        
+                        // [EVENT: SAVE]
+                        if (g.saveCooldown <= 0) { 
+                            g.saves++; 
+                            g.saveCooldown = 60; 
+                        }
+
+                        const shotSpeed = Math.hypot(this.vx, this.vy);
+
+                        // [LOGIC: LEAKY GOAL] (15% chance if shot is hard)
+                        const leakChance = Math.max(0, (shotSpeed - 10) * 0.15);
+                        if (Math.random() < leakChance) {
+                            this.ignoreGoalieUntil = now + 200;
+                            this.vx *= 0.8; 
+                            this.vy *= 0.8;
+                            continue; // Puck slides through
+                        }
+
+                        // [LOGIC: CATCH/FREEZE] (Higher chance if shot is slow)
+                        let catchChance = Math.max(0, 0.6 - (shotSpeed * 0.2));
+                        if (Math.random() < catchChance) {
+                            this.ownerId = g.id; 
+                            this.vx = 0; 
+                            this.vy = 0;
+                            goalieFreezeTimer = performance.now(); 
+                            goalieLocked = false;
+                            return; // Stop physics
+                        }
+
+                        // [PHYSICS: REBOUND] 
+                        this.ignoreGoalieUntil = now + 250;
+                        
+                        // Normal Vector (Collision Angle)
+                        const nx = (this.x - g.x) / d; 
+                        const ny = (this.y - g.y) / d;
+                        
+                        // Position Correction (Pop out of goalie)
+                        this.x = g.x + nx * minD; 
+                        this.y = g.y + ny * minD;
+
+                        // Calculate Impact (Dot Product)
+                        const dot = this.vx * nx + this.vy * ny;
+                        
+                        // 1. Reflect Vector
+                        this.vx -= 2 * dot * nx; 
+                        this.vy -= 2 * dot * ny;
+
+                        // 2. Smart Absorption (The Fix)
+                        // Calculate how "Head-On" the hit was (0.0 to 1.0)
+                        const impactDirectness = Math.abs(dot) / (shotSpeed + 0.001);
+                        let energyRetention = 0.5;
+
+                        if (impactDirectness > 0.85) {
+                            // Direct Hit: Dead bounce (Drop in crease)
+                            energyRetention = 0.15 + Math.random() * 0.15; 
+                        } else {
+                            // Glancing Hit: Deflect (Fly to corner)
+                            energyRetention = 0.60 + Math.random() * 0.20;
+                        }
+
+                        this.vx *= energyRetention; 
+                        this.vy *= energyRetention;
+                    }
+                }
+            }
+        }
+
+        // =====================================================
+        // 3. SCRUM BREAKER (Anti-Stuck)
+        // =====================================================
+        let closeTeam0 = 0; 
+        let closeTeam1 = 0;
+        
+        for (const pl of players) {
+            const d = Math.hypot(pl.x - this.x, pl.y - this.y);
+            if (d < 25) { 
+                if (pl.team === 0) closeTeam0++; else closeTeam1++; 
+            }
+        }
+        
+        // If players from both teams are on top of the puck, jitter it
+        if (closeTeam0 > 0 && closeTeam1 > 0) {
+            this.vx += (Math.random() - 0.5) * 0.5; 
+            this.vy += (Math.random() - 0.5) * 0.5;
+            
+            // Occasional "Pop" to free the puck
+            if (Math.random() < 0.02) {
+                const angle = Math.random() * Math.PI * 2;
+                const popForce = 4.0 + Math.random() * 3.0;
+                this.vx = Math.cos(angle) * popForce; 
+                this.vy = Math.sin(angle) * popForce;
+                this.ownerId = null; 
+                puckStealCooldown = 20;
+            }
+        }
+
+        // =====================================================
+        // 4. HOUSEKEEPING (Limits & Friction)
+        // =====================================================
+        
+        // Terminal Velocity (Prevents wall clipping)
+        const MAX_PUCK_SPEED = 14.0; 
+        const currentSpeed = Math.hypot(this.vx, this.vy);
+        
+        if (currentSpeed > MAX_PUCK_SPEED) {
+            const scale = MAX_PUCK_SPEED / currentSpeed;
+            this.vx *= scale;
+            this.vy *= scale;
+        }
+
+        // Ice Friction
+        this.vx *= 0.993; 
+        this.vy *= 0.993;
+    },
+
+    // =====================================================
+    // RENDER METHOD
+    // =====================================================
+    draw() {
+        let drawX = this.x;
+        let drawY = this.y;
+
+        // If owned, use "Visual Lie" to show puck on stick blade
+        if (this.ownerId !== null) {
+            const owner = getPlayerById(this.ownerId);
+            if (owner) {
+                const dist = owner.size/2 + this.r + 5;
+                
+                // --- DEKE ANIMATION MATH ---
+                let visualAngle = owner.angle;
+                const forwardX = Math.cos(visualAngle);
+                const forwardY = Math.sin(visualAngle);
+                const perpX = -forwardY; 
+                const perpY = forwardX;
+                
+                let lateralOffset = 0;
+                const speed = Math.hypot(owner.vx, owner.vy);
+
+                // Deke Logic
+                if (speed > 0.5) {
+                    if (!('prevAngle' in owner)) owner.prevAngle = owner.angle;
+                    const turnRate = Math.abs(normalizeAngle(owner.angle - owner.prevAngle));
+                    owner.prevAngle = owner.angle;
+                    const isTurning = turnRate > 0.05; 
+                    const now = performance.now();
+
+                    // Init Deke State
+                    if (!('dekeEndTime' in owner)) {
+                        owner.dekeEndTime = 0;
+                        owner.dekeFreq = 0;
+                        owner.dekeAmp = 0;
+                        owner.dekePhase = 0;
+                    }
+
+                    // Start new deke?
+                    if (now > owner.dekeEndTime) {
+                        if (Math.random() < (isTurning ? 0.1 : 0.02)) {
+                            owner.dekeDuration = 300 + Math.random() * 700;
+                            owner.dekeEndTime = now + owner.dekeDuration;
+                            owner.dekeStart = now;
+                            owner.dekeFreq = 0.005 + Math.random() * 0.01;
+                            owner.dekeAmp = isTurning ? (1 + Math.random() * 4) : (.3 + Math.random() * 2);
+                            owner.dekePhase = Math.random() * Math.PI * 2;
+                        }
+                    }
+
+                    // Apply offset
+                    if (now < owner.dekeEndTime) {
+                        const t = (now - owner.dekeStart) * owner.dekeFreq + owner.dekePhase;
+                        lateralOffset = Math.sin(t) * owner.dekeAmp;
+                    }
+                }
+
+                drawX = owner.x + forwardX * dist + perpX * lateralOffset;
+                drawY = owner.y + forwardY * dist + perpY * lateralOffset;
+            }
+        }
+
+        ctx.fillStyle = "#000";
+        ctx.fillRect(drawX - this.r, drawY - this.r, this.r * 2, this.r * 2);
+    }
+};
+
+
+
+
+// =========================================================
+// POSSESSION HELPERS
+// =========================================================
+function tryPickupPuck(p) {
+    if (isResetActive()) return; 
+    if (puck.ownerId !== null) return;
+
+    const dx = puck.x - p.x;
+    const dy = puck.y - p.y;
+    const interactDist = p.size/2 + puck.r + 5;
+
+    // HITBOX CHECK
+    if (dx*dx + dy*dy <= interactDist*interactDist) {
+        
+        // ================================================================
+        // SCENARIO A: IT IS A SHOT (Dangerous Projectile)
+        // ================================================================
+        // RULE: No one catches a shot. It deflects or blocks.
+        if (puck.isShot) {
+            
+            // 1. HIT CHANCE
+            // Hitting a player is common (60-80%), but not guaranteed.
+            // If missed, it sails through the "legs".
+            const hitChance = (p.team === getPlayerById(puck.lastOwnerId)?.team) ? 0.60 : 0.80;
+            if (Math.random() > hitChance) return; 
+
+            // 2. DEFLECTION PHYSICS (The "Tip")
+            // Normalize impact
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            const nx = dx / dist; 
+            const ny = dy / dist; 
+            
+            // Deflect Angle: Random "Tip" (not a perfect wall reflection)
+            const tipAngle = (Math.random() - 0.5) * 1.5; 
+            const cos = Math.cos(tipAngle);
+            const sin = Math.sin(tipAngle);
+            
+            // Rotate velocity
+            const nvx = puck.vx * cos - puck.vy * sin;
+            const nvy = puck.vx * sin + puck.vy * cos;
+            
+            puck.vx = nvx;
+            puck.vy = nvy;
+
+            // 3. ENERGY LOSS (No Rail Gun)
+            // Hitting a body absorbs energy.
+            // Teammate Tip: Retains 75% speed.
+            // Enemy Block: Retains 40% speed.
+            const isTeammate = (p.team === getPlayerById(puck.lastOwnerId)?.team);
+            const dampening = isTeammate ? 0.75 : 0.40;
+            
+            puck.vx *= dampening;
+            puck.vy *= dampening;
+
+            // 4. CLEANUP
+            // Push puck out of body so it doesn't get stuck
+            puck.x = p.x + nx * (interactDist + 2);
+            puck.y = p.y + ny * (interactDist + 2);
+            
+            // It is now a loose puck (rebound), anyone can pick it up NEXT frame.
+            puck.isShot = false; 
+            return; 
+        }
+
+        // ================================================================
+        // SCENARIO B: IT IS A PASS / LOOSE PUCK (Catchable)
+        // ================================================================
+        
+        // Identify Relationship
+        let isTeammate = false;
+        if (puck.lastOwnerId) {
+            const prevOwner = getPlayerById(puck.lastOwnerId);
+            if (prevOwner && prevOwner.team === p.team) isTeammate = true;
+        }
+
+        // 1. TEAMMATE RECEPTION
+        if (isTeammate) {
+            if (Math.random() < 0.95) {
+                // Stats
+                if (puck.passTargetId === p.id && window.BT8_STATS) window.BT8_STATS.completions++;
+                puck.passTargetId = null; 
+
+                puck.ownerId = p.id;
+                puck.vx = 0; puck.vy = 0;
+                return;
+            } 
+        }
+
+        // 2. OPPONENT STEAL
+        if (!isTeammate) {
+            if (Math.random() < 0.40) {
+                if (puck.passTargetId !== null) puck.passTargetId = null;
+                puck.ownerId = p.id;
+                puck.vx = 0; puck.vy = 0;
+                return;
+            }
+        }
+
+        // 3. THE BOBBLE (Failed Catch)
+        if (puck.passTargetId !== null) puck.passTargetId = null;
+
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        const nx = dx / dist; 
+        const ny = dy / dist; 
+        
+        const dot = puck.vx * nx + puck.vy * ny;
+        puck.vx = puck.vx - 2 * dot * nx;
+        puck.vy = puck.vy - 2 * dot * ny;
+        
+        puck.vx *= 0.3;
+        puck.vy *= 0.3;
+        
+        puck.x = p.x + nx * (interactDist + 2);
+        puck.y = p.y + ny * (interactDist + 2);
+    }
+}
+
+
+
+// ---------------------------------------------------------
+// BEHIND-NET SHOT SAFETY (FIXED for SIDE SWAPS)
+// ---------------------------------------------------------
+function fixBehindNetShotDir(p) {
+    // Only care if we're between the posts vertically
+    if (p.y < topY || p.y > botY) return null;
+
+    const cosA = Math.cos(p.angle);
+    const sinA = Math.sin(p.angle);
+
+    // Identify which coordinate is physically Left vs Right
+    const leftGoalX = Math.min(goal1, goal2);
+    const rightGoalX = Math.max(goal1, goal2);
+
+    // ---------------------------------
+    // LEFT NET (opening to the RIGHT)
+    // ---------------------------------
+    // Behind net = x < leftGoalX
+    // "Facing center" = looking right (cosA > 0)
+    if (p.x < leftGoalX + 5 && cosA > 0.4) {
+        // Force vertical
+        let dirY = Math.sign(sinA);
+        if (dirY === 0) dirY = -1;
+        return { vxDir: 0, vyDir: dirY };
+    }
+
+    // ---------------------------------
+    // RIGHT NET (opening to the LEFT)
+    // ---------------------------------
+    // Behind net = x > rightGoalX
+    // "Facing center" = looking left (cosA < 0)
+    if (p.x > rightGoalX - 5 && cosA < -0.4) {
+        // Force vertical
+        let dirY = Math.sign(sinA);
+        if (dirY === 0) dirY = 1;
+        return { vxDir: 0, vyDir: dirY };
+    }
+
+    return null;
+}
+
+
+
+
+
+
+function shootPuck(player, power) {
+    if (puck.ownerId !== player.id) return;
+
+    const basePower = (power !== undefined) ? power : (6 + Math.random() * 5);
+
+    // 1. BEHIND NET LOGIC (Unchanged)
+    const behind = fixBehindNetShotDir(player);
+    if (behind) {
+        player.shootCooldown = 35;
+        puck.lastOwnerId = player.id;
+        ejectPuckFromOwner(player);
+        const speed = basePower;
+        puck.vx = behind.vxDir * speed;
+        puck.vy = behind.vyDir * speed;
+        puck.isShot = true; // <--- TAG IT
+        return;
+    }
+
+    // 2. NORMAL SHOT (With Spread)
+    player.shootCooldown = 35;
+    puck.lastOwnerId = player.id;
+
+    ejectPuckFromOwner(player);
+
+    const speed = basePower;
+
+    // Add Spread (The "Anti-Perfect" fix we discussed)
+    const spread = (Math.random() - 0.5) * 0.3; 
+    const finalAngle = player.angle + spread;
+
+    puck.vx = Math.cos(finalAngle) * speed;
+    puck.vy = Math.sin(finalAngle) * speed;
+    
+    puck.isShot = true; // <--- TAG IT
+}
+
+
+
+
+
+// PASSING SYSTEM — Variable Speed (Soft vs Hard)
+function passPuckToTeammate(p, target) {
+    if (puck.ownerId !== p.id) return;
+
+    const dxRaw = target.x - p.x;
+    const dyRaw = target.y - p.y;
+    const dist = Math.hypot(dxRaw, dyRaw);
+
+    // VARIABLE SPEED LOGIC
+    let passSpeed = 5.5 + (dist / 40.0);
+    passSpeed += (Math.random() * 1.0 - 0.5); 
+    if (passSpeed < 6.0) passSpeed = 6.0;
+    if (passSpeed > 14.0) passSpeed = 14.0;
+
+    // Calculate Lead
+    const travelTime = dist / passSpeed;
+    
+    let leadX = target.vx * travelTime;
+    let leadY = target.vy * travelTime;
+    
+    const leadMag = Math.hypot(leadX, leadY);
+    if (leadMag > 60) {
+        leadX = (leadX / leadMag) * 60;
+        leadY = (leadY / leadMag) * 60;
+    }
+
+    let tx = target.x + leadX;
+    let ty = target.y + leadY;
+
+    // Clamp
+    tx = Math.max(RINK_MIN_X + 25, Math.min(RINK_MAX_X - 25, tx));
+    ty = Math.max(RINK_MIN_Y + 25, Math.min(RINK_MAX_Y - 25, ty));
+
+    const dx = tx - p.x;
+    const dy = ty - p.y;
+    const aimDist = Math.hypot(dx, dy);
+    
+    if (aimDist < 1) return; 
+
+
+    puck.lastOwnerId = p.id;
+    ejectPuckFromOwner(p); 
+
+    const dirX = dx / aimDist;
+    const dirY = dy / aimDist;
+
+    puck.vx = dirX * passSpeed;
+    puck.vy = dirY * passSpeed;
+    
+    puckStealCooldown = 15;
+    puck.isShot = false; // <--- SAFE TO CATCH
+
+    // Stats tracking (unchanged)
+    if (p.team === 0 && window.BT8_STATS) {
+        window.BT8_STATS.attempts++;
+    }
+}
+
+
+
+function tryStealPuck(attacker, owner) {
+    // --- 1. GOALIE IMMUNITY ---
+    if (owner.type === "goalie") return false;
+
+    // --- 2. COOLDOWN CHECK ---
+    if (puckStealCooldown > 0) return false;
+
+    // --- 3. DISTANCE CHECK ---
+    const dx = attacker.x - owner.x;
+    const dy = attacker.y - owner.y;
+    const dist2 = dx*dx + dy*dy;
+    const stealDist = owner.size/2 + attacker.size/2 + 2; 
+
+    if (dist2 < stealDist * stealDist) {
+        
+        // =========================================================
+        // *** THE FIX: ANGLE OF ATTACK ***
+        // =========================================================
+        
+        // 1. Calculate the vector from Owner -> Attacker
+        const dist = Math.sqrt(dist2);
+        const nx = dx / dist; // Normalized direction to attacker
+        const ny = dy / dist;
+
+        // 2. Get Owner's facing direction
+        const ownerFaceX = Math.cos(owner.angle);
+        const ownerFaceY = Math.sin(owner.angle);
+
+        // 3. Dot Product
+        // Result is 1.0 if attacker is directly IN FRONT
+        // Result is -1.0 if attacker is directly BEHIND
+        // Result is 0.0 if attacker is directly to the SIDE
+        const alignment = (nx * ownerFaceX) + (ny * ownerFaceY);
+
+        // 4. The "Check Your Six" Rule
+        // If alignment is < 0, the attacker is behind the 90-degree plane of the carrier.
+        // We set a threshold of -0.3 (roughly 110 degrees back).
+        if (alignment < -0.3) {
+            
+            // "Stick Lift" Logic: 
+            // Attempting to steal from behind is hard. 
+            // Let's give it only a 10% chance of success.
+            if (Math.random() > 0.10) {
+                return false; // Steal failed (bumped from behind but kept puck)
+            }
+            
+            // Optional: If you want to log it to verify it works
+            // console.log("Rare stick lift from behind!");
+        }
+
+        // =========================================================
+
+        // Successful Steal
+        puck.ownerId = attacker.id;
+        puck.vx = 0;
+        puck.vy = 0;
+
+        puckStealCooldown = 20; 
+        return true;
+    }
+
+    return false;
+}
+
+
+
+
+// =========================================================
+// PLAYER vs PLAYER COLLISIONS
+// =========================================================
+function resolvePlayerCollisions() {
+    for (let i = 0; i < players.length; i++) {
+        for (let j = i + 1; j < players.length; j++) {
+            const a = players[i];
+            const b = players[j];
+
+            const ar = a.size / 2;
+            const br = b.size / 2;
+            const minDist = ar + br;
+
+            const dx = b.x - a.x;
+            const dy = b.y - a.y;
+            const dist2 = dx*dx + dy*dy;
+
+            if (dist2 < minDist * minDist && dist2 > 0) {
+                const dist = Math.sqrt(dist2);
+                
+                const nx = dx / dist;
+                const ny = dy / dist;
+
+                // --- 1. POSITIONAL CORRECTION ---
+                const overlap = (minDist - dist) * 0.5;
+                a.x -= nx * overlap;
+                a.y -= ny * overlap;
+                b.x += nx * overlap;
+                b.y += ny * overlap;
+
+                // --- 2. PHYSICS IMPULSE ---
+                const rvx = b.vx - a.vx;
+                const rvy = b.vy - a.vy;
+                const velAlongNormal = rvx * nx + rvy * ny;
+
+                if (velAlongNormal > 0) continue;
+
+                const restitution = 0.9; 
+                let jImpulse = -(1 + restitution) * velAlongNormal;
+                jImpulse /= 2; 
+
+                const impulseX = jImpulse * nx;
+                const impulseY = jImpulse * ny;
+
+                a.vx -= impulseX;
+                a.vy -= impulseY;
+                b.vx += impulseX;
+                b.vy += impulseY;
+
+                // --- 3. IMPACT EVENT ---
+                const impactForce = Math.abs(jImpulse);
+                
+                // Threshold: 0.75 (Medium hit or harder)
+                if (impactForce > 0.75) {
+                    
+                    // --- A. CALCULATE STUN DURATION ---
+                    // Map force (0.75 to 2.0) -> frames (20 to 90)
+                    let stunFrames = 20 + (impactForce - 0.75) * 60;
+                    if (stunFrames > 90) stunFrames = 90;
+                    stunFrames = Math.floor(stunFrames);
+
+                    // --- B. CHECK PUCK LOSS ---
+                    
+                    // Case 1: Player A has the puck
+                    if (puck.ownerId === a.id) {
+                        // 1. Eject: Teleport puck from A's center to stick tip
+                        // (This also sets puck.ownerId = null)
+                        ejectPuckFromOwner(a); 
+                        
+                        // 2. Pop Force: Harder hit = further flight
+                        const popScale = 2.0 + impactForce * 2.0; 
+                        
+                        puck.vx = a.vx + (Math.random() - 0.5) * popScale;
+                        puck.vy = a.vy + (Math.random() - 0.5) * popScale;
+                        
+                        // 3. Status Effects
+                        puckStealCooldown = 15; 
+                        a.stunTimer = stunFrames; 
+
+                        // *** NEW: Randomize Spin (CW or CCW) ***
+                        a.stunRot = (Math.random() < 0.5 ? 0.2 : -0.2);
+                    }
+                    
+                    // Case 2: Player B has the puck
+                    else if (puck.ownerId === b.id) {
+                        // 1. Eject
+                        ejectPuckFromOwner(b); 
+
+                        // 2. Pop Force
+                        const popScale = 2.0 + impactForce * 2.0;
+
+                        puck.vx = b.vx + (Math.random() - 0.5) * popScale;
+                        puck.vy = b.vy + (Math.random() - 0.5) * popScale;
+
+                        // 3. Status Effects
+                        puckStealCooldown = 15;
+                        b.stunTimer = stunFrames;
+
+                        // *** NEW: Randomize Spin (CW or CCW) ***
+                        b.stunRot = (Math.random() < 0.5 ? 0.2 : -0.2);
+                    }
+                }
+            }
+        }
+    }
+}
+
+// =========================================================
+// AI INPUT BUILDER (Phase 3)
+// =========================================================
+function buildAIInputs(p) {
+    const inputs = [];
+
+    // Normalize helpers
+    const normX = 1 / W;
+    const normY = 1 / H;
+    const normV = 1 / 5;   // typical max velocity ~5
+
+    // --- Self velocity ---
+    inputs.push(p.vx * normV);
+    inputs.push(p.vy * normV);
+
+    // --- Puck relative position ---
+    const dxp = puck.x - p.x;
+    const dyp = puck.y - p.y;
+    const dist_p = Math.hypot(dxp, dyp);
+
+    inputs.push(dxp * normX);
+    inputs.push(dyp * normY);
+    inputs.push(dist_p * normX);   // normalized distance
+
+    // --- Goals relative ---
+    const attackGoalX = (p.team === 0) ? goal2 : goal1;
+    const defendGoalX = (p.team === 0) ? goal1 : goal2;
+
+    const dx_ag = attackGoalX - p.x;
+    const dy_ag = RY - p.y;
+
+    const dx_dg = defendGoalX - p.x;
+    const dy_dg = RY - p.y;
+
+    inputs.push(dx_ag * normX);
+    inputs.push(dy_ag * normY);
+    inputs.push(dx_dg * normX);
+    inputs.push(dy_dg * normY);
+
+    // --- Team puck state ---
+    const owner = getPlayerById(puck.ownerId);
+    const teammateHas = owner && owner.team === p.team ? 1 : 0;
+    const opponentHas = owner && owner.team !== p.team ? 1 : 0;
+
+    inputs.push(teammateHas);
+    inputs.push(opponentHas);
+
+    // --- Am I closest teammate to puck? ---
+    let closest = true;
+    for (const o of players) {
+        if (o === p) continue;
+        if (o.team !== p.team) continue;
+        const d = Math.hypot(o.x - puck.x, o.y - puck.y);
+        if (d < dist_p) {
+            closest = false;
+            break;
+        }
+    }
+    inputs.push(closest ? 1 : 0);
+
+    return inputs;
+}
+
+
+
+// =========================================================
+// AI FORWARD PASS (Phase 3)
+// =========================================================
+function aiForwardPass(inputs, brain) {
+    const { w1, b1, w2, b2 } = brain;
+
+    // tanh activation
+    const tanh = x => Math.tanh(x);
+
+    // forward pass: input → hidden
+    const hidden = w1.map((row, i) => {
+        let sum = b1[i];
+        for (let j = 0; j < row.length; j++) {
+            sum += row[j] * inputs[j];
+        }
+        return tanh(sum);
+    });
+
+    // forward pass: hidden → output
+    const outputs = w2.map((row, i) => {
+        let sum = b2[i];
+        for (let j = 0; j < row.length; j++) {
+            sum += row[j] * hidden[j];
+        }
+        return tanh(sum);
+    });
+
+    // === EXPLORATION NOISE (PHASE 4.4) ===
+    const epsilon = 0.2;  // exploration rate (20%)
+
+    for (let i = 0; i < outputs.length; i++) {
+        if (Math.random() < epsilon) {
+            outputs[i] += (Math.random() * 2 - 1) * 0.5;
+            outputs[i] = Math.max(-1, Math.min(1, outputs[i]));  // clamp to [-1, 1]
+        }
+    }
+
+    return outputs;
+}
+
+
+
+function updateBrainWithReward(p, learningRate = 0.01) {
+    const brain = p.brain;
+    const reward = p.reward;
+
+    if (!reward || reward === 0) return;
+
+    function perturb(x, scale = 0.01) {
+        return x + (Math.random() * 2 - 1) * scale;
+    }
+
+    function updateMatrix(m, scale) {
+        for (let i = 0; i < m.length; i++) {
+            for (let j = 0; j < m[i].length; j++) {
+                m[i][j] += learningRate * reward * (Math.random() * 2 - 1) * scale;
+            }
+        }
+    }
+
+    function updateVector(v, scale) {
+        for (let i = 0; i < v.length; i++) {
+            v[i] += learningRate * reward * (Math.random() * 2 - 1) * scale;
+        }
+    }
+
+    updateMatrix(brain.w1, 0.1);
+    updateVector(brain.b1, 0.1);
+    updateMatrix(brain.w2, 0.1);
+    updateVector(brain.b2, 0.1);
+}
+
+
+
+
+
+
+
+// =========================================================
+// NEURAL NETWORK SETUP (PHASE 4.1)
+// =========================================================
+
+function initPlayerBrain(p) {
+    const inputSize = buildAIInputs(p).length;
+    const hiddenSize = 8;
+    const outputSize = 4;
+
+    // Xavier Initialization (roughly)
+    function randn(scale) {
+        return (Math.random() * 2 - 1) * scale;
+    }
+
+    function randMatrix(rows, cols, scale) {
+        const m = [];
+        for (let i = 0; i < rows; i++) {
+            const row = [];
+            for (let j = 0; j < cols; j++) {
+                row.push(randn(scale));
+            }
+            m.push(row);
+        }
+        return m;
+    }
+
+    function randVector(size, scale) {
+        return Array.from({ length: size }, () => randn(scale));
+    }
+
+    const scale1 = Math.sqrt(1 / inputSize);
+    const scale2 = Math.sqrt(1 / hiddenSize);
+
+    p.brain.inputSize = inputSize;
+    p.brain.hiddenSize = hiddenSize;
+    p.brain.outputSize = outputSize;
+    p.brain.w1 = randMatrix(hiddenSize, inputSize, scale1);
+    p.brain.b1 = randVector(hiddenSize, scale1);
+    p.brain.w2 = randMatrix(outputSize, hiddenSize, scale2);
+    p.brain.b2 = randVector(outputSize, scale2);
+}
+
+// Call on all Team 0 skaters
+for (const p of players) {
+    if (p.team === 0 && p.type === "skater") {
+        initPlayerBrain(p);
+    }
+}
+
+
+
+
+
+
+
+
+
+// =========================================================
+// PLAYER UPDATES
+// =========================================================
+function updateHumanSkater(p) {
+
+    // 1. STUN CHECK
+    if (p.stunTimer > 0) {
+        p.stunTimer--;
+        p.vx *= 0.95; p.vy *= 0.95;
+        p.x += p.vx; p.y += p.vy;
+        p.angle += (p.stunRot || 0.2);
+        collideWithRink(p, p.size/2);
+        return; 
+    }
+
+    // =========================================================
+    // 2. INPUTS & STATE
+    // =========================================================
+    const isBraking = keys.ArrowDown;
+    const isPushing = keys.ArrowUp;
+    
+    // VISUAL STATE
+    p.isAccelerating = isPushing; 
+
+    // A. ROTATION
+    let turn = p.turnRate * (isBraking ? 2.5 : 1.0);
+    if (keys.ArrowLeft)  p.angle -= turn;
+    if (keys.ArrowRight) p.angle += turn;
+
+    // =========================================================
+    // 3. PHYSICS ENGINE
+    // =========================================================
+
+    // --- A. ACCELERATION (Apply Force First) ---
+    if (isPushing) {
+        const drive = 0.08; 
+        p.vx += Math.cos(p.angle) * drive;
+        p.vy += Math.sin(p.angle) * drive;
+    }
+
+    // --- B. FRICTION & HANDLING ---
+    if (isBraking) {
+        // BRAKING
+        p.vx *= 0.94; 
+        p.vy *= 0.94;
+        
+    } else {
+        // SKATING
+        
+        // 1. FRICTION
+        const COAST_FRICTION = 0.992; // Slightly slippier for momentum
+        p.vx *= COAST_FRICTION;
+        p.vy *= COAST_FRICTION;
+
+        // 2. CARVING (The Fix)
+        // Recalculate speed HERE so it includes the acceleration we just added
+        const currentSpeed = Math.hypot(p.vx, p.vy);
+
+        if (currentSpeed > 0.1) {
+            // Normalized Velocity Direction
+            const moveX = p.vx / currentSpeed;
+            const moveY = p.vy / currentSpeed;
+            
+            // Facing Direction
+            const faceX = Math.cos(p.angle);
+            const faceY = Math.sin(p.angle);
+
+            // Grip Factor
+            const grip = 0.15; 
+
+            // Blend
+            let newDirX = moveX + (faceX - moveX) * grip;
+            let newDirY = moveY + (faceY - moveY) * grip;
+            
+            // Re-Normalize
+            const newMag = Math.hypot(newDirX, newDirY);
+            newDirX /= newMag;
+            newDirY /= newMag;
+
+            // Apply new direction using the UPDATED speed
+            p.vx = newDirX * currentSpeed;
+            p.vy = newDirY * currentSpeed;
+        }
+    }
+
+    // --- C. MAX SPEED CAP ---
+    // Recalculate again to ensure cap applies to final velocity
+    const finalSpeed = Math.hypot(p.vx, p.vy);
+    const maxS = p.maxSpeed * 1.01; 
+    
+    if (finalSpeed > maxS) {
+        const s = maxS / finalSpeed;
+        p.vx *= s;
+        p.vy *= s;
+    }
+
+    // --- D. UPDATE POSITION ---
+    p.x += p.vx;
+    p.y += p.vy;
+    
+    collideWithRink(p, p.size/2);
+
+    // =========================================================
+    // 4. INTERACTIONS
+    // =========================================================
+    tryPickupPuck(p);
+
+    if (puck.ownerId !== null && puck.ownerId !== p.id) {
+        const owner = getPlayerById(puck.ownerId);
+        if (owner && owner.team !== p.team) {
+            if (!goalieLocked) tryStealPuck(p, owner);
+        }
+    }
+
+    if (keys.Control && puck.ownerId === p.id) {
+        shootPuck(p);
+    }
+}
+
+
+
+
+
+
+function isClosestTeammateToPuck(p) {
+    const dp = Math.hypot(puck.x - p.x, puck.y - p.y);
+
+    for (const o of players) {
+        if (o.team !== p.team) continue;
+        if (o === p) continue;
+
+        const d = Math.hypot(puck.x - o.x, puck.y - o.y);
+        if (d < dp) return false;
+    }
+    return true;
+}
+
+
+// ============================================================================
+// =========================== AI DECISION MODEL ==============================
+// ============================================================================
+//
+// Each skater evaluates behaviour in this order:
+// 1. If I have puck → decideWithPuck()
+// 2. If teammate has puck → supportTeammate()
+// 3. If opponent has puck → defendAgainstOpponent()
+// 4. If puck is loose → chaseLoosePuck()
+//
+// Each decision function returns:
+//   { tx: number, ty: number, action: "none"|"shoot"|"pass", target: player|null }
+//
+// updateAISkater() will then steer toward tx, ty and perform the action.
+// ============================================================================
+
+
+
+// ---------------------------------------------------------------------------
+// ROLE SYSTEM HELPERS (MUST BE ABOVE think(p))
+// ---------------------------------------------------------------------------
+
+
+
+
+
+function assignRolesForTeam(team) {
+    const myGoalX = (team === 0) ? goal1 : goal2;
+
+    // Filter and sort skaters by distance to own net
+    // (Closest to net becomes the Defender)
+    const skaters = players.filter(p => p.team === team && p.type === "skater");
+    skaters.sort((a,b) => Math.abs(a.x - myGoalX) - Math.abs(b.x - myGoalX));
+
+    // Reset biases
+    skaters.forEach(p => p.laneBias = 0);
+
+    // ===================================
+    // TEAM 0 - Uses A, B, C
+    // ===================================
+    if (team === 0) {
+        // Safe check to ensure we have enough players
+        if (skaters[0]) skaters[0].role = "A"; // Defender
+        if (skaters[1]) skaters[1].role = "B"; // Center/High Point
+        if (skaters[2]) skaters[2].role = "C"; // Winger/Low Point
+        
+        // 4th/5th players act as generic forwards (C)
+        if (skaters[3]) skaters[3].role = "C";
+        if (skaters[4]) skaters[4].role = "C";
+    }
+    
+    // ===================================
+    // TEAM 1 - Uses S, P, D
+    // ===================================
+    else if (team === 1) {
+        // Note: For Team 1, our logic expects:
+        // S = Sniper
+        // P = Playmaker
+        // D = Defender
+        
+        // Based on distance sort (0 is closest to goal)
+        if (skaters[0]) skaters[0].role = "S"; // Top Circle
+        if (skaters[1]) skaters[1].role = "P"; // Bottom Circle
+        if (skaters[2]) skaters[2].role = "D"; // Defender (Point)
+        
+        // If we have extra players, make them Playmakers
+        if (skaters[3]) skaters[3].role = "P";
+        if (skaters[4]) skaters[4].role = "S";
+    }
+}
+
+
+
+function getTeamRoles(team) {
+    const myGoalX = (team === 0) ? goal1 : goal2;
+    let arr = players.filter(p => p.team === team && p.type === "skater");
+    arr.sort((a,b) => Math.abs(a.x - myGoalX) - Math.abs(b.x - myGoalX));
+    return { closest: arr[0], middle: arr[1], farthest: arr[2] };
+}
+
+function roleA_goalieProtector(p) {
+    const gx = (p.team === 0) ? goal1 : goal2;
+    const gy = RY;
+    let opp = null, best = 999999;
+    for (const o of players) {
+        if (o.team === p.team) continue;
+        const d = Math.hypot(o.x - p.x, o.y - p.y);
+        if (d < best) { best = d; opp = o; }
+    }
+    const bx = (opp.x + gx) / 2;
+    const by = (opp.y + gy) / 2;
+    return { tx: bx, ty: by, action:"none" };
+}
+
+function roleB_attack(p) {
+    const gx = (p.team === 0) ? goal2 : goal1;
+    return { tx: gx, ty: RY, action:"none" };
+}
+
+function roleB_pressureCarrier(p, carrier) {
+    return { tx: carrier.x, ty: carrier.y, action:"none" };
+}
+
+function roleB_loosePuck(p) {
+    return { tx: puck.x, ty: puck.y, action:"none" };
+}
+
+function roleC_supportOffense(p) {
+    const gx = (p.team === 0) ? goal2 : goal1;
+    return { tx: gx, ty: RY, action:"none" };
+}
+
+function roleC_supportDefense(p) {
+    const gx = (p.team === 0) ? goal1 : goal2;
+    return { tx: gx, ty: RY, action:"none" };
+}
+
+function roleC_loosePuck(p) {
+    return { tx: puck.x, ty: puck.y, action:"none" };
+}
+
+
+
+
+function solveBehindNet(p) {
+    const goalX = (p.team === 0) ? goal2 : goal1;
+    
+    // Determine Attack Direction based on where the goal is
+    // If goalX is > Center (Right Side), we are Attacking Right.
+    // If goalX is < Center (Left Side), we are Attacking Left.
+    const attackingRight = (goalX > RX);
+
+    // 1. DEFINE "BEHIND"
+    // If attacking Right, Behind is X > Goal.
+    // If attacking Left, Behind is X < Goal.
+    let isBehind = false;
+    const buffer = 15;
+    
+    if (attackingRight) {
+        if (p.x > goalX - buffer) isBehind = true;
+    } else {
+        if (p.x < goalX + buffer) isBehind = true;
+    }
+    
+    if (!isBehind) return null; // We are in front, let normal logic run
+
+    // 2. LOOK FOR SLOT PASS
+    // Slot is always "In Front" of the goal (Back towards Center)
+    const slotOffset = attackingRight ? -150 : 150;
+    const slotX = goalX + slotOffset;
+    
+    for (const mate of players) {
+        if (mate.team !== p.team || mate.id === p.id) continue;
+        const distToSlot = Math.hypot(mate.x - slotX, mate.y - RY);
+        if (distToSlot < 100) {
+            if (!isLaneBlocked(p.x, p.y, mate.x, mate.y, p.team)) {
+                return { tx: mate.x, ty: mate.y, action: "pass", target: mate };
+            }
+        }
+    }
+
+    // 3. MOVEMENT: CURL OUT TO THE NEAREST CIRCLE
+    // If we are Top (y < RY), go to Top Circle. If Bottom, go Bottom.
+    const isTop = (p.y < RY);
+    
+    // Safe Spot must be "In Front" of the goal line (Towards Center Ice)
+    // If attacking Right, "Front" is Left (-).
+    // If attacking Left, "Front" is Right (+).
+    const safeOffset = attackingRight ? -100 : 100;
+    const safeX = goalX + safeOffset;
+    const safeY = isTop ? (RY - 90) : (RY + 90);
+
+    return { tx: safeX, ty: safeY, action: "none" };
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// ============================================================================
+// Team 0 BEHAVIOUR: WITH PUCK
+// ============================================================================
+function decideWithPuck(p) {
+
+    const goalX = (p.team === 0) ? goal2 : goal1;
+    const goalY = (topY + botY) / 2;
+
+    // === COOLDOWN CHECK ===
+    if (p.shootCooldown > 0) {
+        const lane = pickCarryLane(p);
+        return { tx: lane.x, ty: lane.y, action: "none", target: null };
+    }
+
+    // =====================================================
+    // 1. Evaluate shot
+    // =====================================================
+    const shoot = evaluateShot(p);
+
+    // === BREAKAWAY OVERRIDE ===
+    if (shootReason === "BREAKAWAY → GOOD") {
+
+        // Face target
+        p.angle = Math.atan2(shoot.y - p.y, shoot.x - p.x);
+
+        // --- Prevent illegal back-net shots ---
+        const redirect = redirectShotBehindNet(p);
+        if (redirect) {
+
+            // Force shot angle toward redirected direction
+            p.angle = Math.atan2(redirect.y - p.y, redirect.x - p.x);
+
+            return {
+                tx: redirect.x,
+                ty: redirect.y,
+                action: "shoot",
+                target: null
+            };
+        }
+
+        // Normal breakaway shot
+        return {
+            tx: shoot.x,
+            ty: shoot.y,
+            action: "shoot",
+            target: null
+        };
+    }
+
+    // === NORMAL SHOOT CHECK ===
+    if (shoot.good && !isLaneBlocked(p.x, p.y, shoot.x, shoot.y, p.team)) {
+
+        // Face goal before shooting
+        p.angle = Math.atan2(shoot.y - p.y, shoot.x - p.x);
+
+        // --- Prevent illegal back-net shots ---
+        const redirect = redirectShotBehindNet(p);
+        if (redirect) {
+
+            // Force shot angle toward redirected direction
+            p.angle = Math.atan2(redirect.y - p.y, redirect.x - p.x);
+            
+            return {
+                tx: redirect.x,
+                ty: redirect.y,
+                action: "shoot",
+                target: null
+            };
+        }
+
+        // Normal shot
+        return {
+            tx: shoot.x,
+            ty: shoot.y,
+            action: "shoot",
+            target: null
+        };
+    }
+
+    // =====================================================
+    // 2. Evaluate pass options
+    // =====================================================
+    const pass = evaluatePassOptions(p);
+
+    if (pass.good) {
+
+        const pressured = isPressured(p);
+        const clearLane = !isLaneBlocked(
+            p.x, p.y,
+            pass.teammate.x, pass.teammate.y,
+            p.team
+        );
+
+        if (clearLane || pressured) {
+            return {
+                tx: pass.teammate.x,
+                ty: pass.teammate.y,
+                action: "pass",
+                target: pass.teammate
+            };
+        }
+    }
+
+    // =====================================================
+    // 3. Carry puck toward best lane
+    // =====================================================
+    const lane = pickCarryLane(p);
+
+    return {
+        tx: lane.x,
+        ty: lane.y,
+        action: "none",
+        target: null
+    };
+}
+
+
+
+
+
+
+
+
+
+
+
+
+// ============================================================================
+// BEHAVIOUR: SUPPORT TEAMMATE WITH PUCK
+// ============================================================================
+function supportTeammate(p, owner) {
+
+    // How far behind/sideways to be
+    const followDist = 70;     // lateral spacing
+    const trailDist  = 90;     // trailing support
+    
+    // Calculate trailing point (behind puck carrier)
+    const trailAngle = owner.angle + Math.PI;   // directly behind
+    const trailX = owner.x + Math.cos(trailAngle) * trailDist;
+    const trailY = owner.y + Math.sin(trailAngle) * trailDist;
+
+    // Calculate lateral point (left/right of puck carrier)
+    const leftAngle  = owner.angle + Math.PI/2;
+    const rightAngle = owner.angle - Math.PI/2;
+
+    const leftX  = owner.x + Math.cos(leftAngle) * followDist;
+    const leftY  = owner.y + Math.sin(leftAngle) * followDist;
+
+    const rightX = owner.x + Math.cos(rightAngle) * followDist;
+    const rightY = owner.y + Math.sin(rightAngle) * followDist;
+
+    // Score both lateral sides for openness
+    const leftScore  = openSpaceScore(leftX, leftY, p.team);
+    const rightScore = openSpaceScore(rightX, rightY, p.team);
+
+    // Choose best position: trail vs left vs right
+    let bestX = trailX;
+    let bestY = trailY;
+    let bestScore = openSpaceScore(trailX, trailY, p.team);
+
+    if (leftScore > bestScore) {
+        bestScore = leftScore;
+        bestX = leftX;
+        bestY = leftY;
+    }
+    if (rightScore > bestScore) {
+        bestScore = rightScore;
+        bestX = rightX;
+        bestY = rightY;
+    }
+
+    return {
+        tx: bestX,
+        ty: bestY,
+        action: "none",
+        target: null
+    };
+}
+
+
+
+
+// ============================================================================
+// BEHAVIOUR: DEFEND AGAINST OPPONENT
+// ============================================================================
+function defendAgainstOpponent(p, owner) {
+
+    const carrier = owner;
+
+    // ----------------------------------------------------------
+    // 1. SLOT PROTECTION (default defensive position)
+    // ----------------------------------------------------------
+    const slotX = (p.team === 0) ? goal1 + 120 : goal2 - 120;
+    const slotY = RY;
+
+    // distance from defender to slot
+    const distSlot = Math.hypot(p.x - slotX, p.y - slotY);
+
+    // if defender is way out of position → go home first
+    if (distSlot > 180) {
+        return {
+            tx: slotX,
+            ty: slotY,
+            action: "none"
+        };
+    }
+
+    // ----------------------------------------------------------
+    // 2. CLOSEST DEFENDER → pressure puck carrier
+    // ----------------------------------------------------------
+    if (isClosestTeammateToTarget(p, carrier)) {
+
+        const dx = carrier.x - p.x;
+        const dy = carrier.y - p.y;
+        const dist = Math.hypot(dx, dy);
+
+        const idealGap = 110;  // distance you want to maintain
+
+        // too far away → close the gap
+        if (dist > idealGap + 40) {
+            return {
+                tx: carrier.x,
+                ty: carrier.y,
+                action: "none"
+            };
+        }
+
+        // too close → back up toward your own net (maintain gap)
+        if (dist < idealGap - 40) {
+            const retreatX = (p.team === 0) ? goal1 + 60 : goal2 - 60;
+            return {
+                tx: retreatX,
+                ty: p.y,       // same vertical line
+                action: "none"
+            };
+        }
+
+        // ideal gap → shadow the carrier
+        return {
+            tx: carrier.x - (dx / dist) * idealGap,
+            ty: carrier.y - (dy / dist) * idealGap,
+            action: "none"
+        };
+    }
+
+    // ----------------------------------------------------------
+    // 3. NOT CLOSEST → block passing lanes
+    // ----------------------------------------------------------
+    // find the teammate the carrier wants to pass to
+    const mate = findBestPassTargetFor(opponentTeam = carrier.team);
+
+    if (mate) {
+        // midpoint between carrier and his passing target
+        const midX = (carrier.x + mate.x) / 2;
+        const midY = (carrier.y + mate.y) / 2;
+
+        return {
+            tx: midX,
+            ty: midY,
+            action: "none"
+        };
+    }
+
+    // ----------------------------------------------------------
+    // 4. fallback = slot protection
+    // ----------------------------------------------------------
+    return {
+        tx: slotX,
+        ty: slotY,
+        action: "none"
+    };
+}
+
+
+
+
+// ============================================================================
+// BEHAVIOUR: LOOSE PUCK
+// ============================================================================
+function chaseLoosePuck(p) {
+
+    // closest teammate → chase directly
+    if (isClosestTeammateToTarget(p, puck)) {
+        return {
+            tx: puck.x,
+            ty: puck.y,
+            action: "none"
+        };
+    }
+
+    // others → support angle behind closest chaser
+    const support = findLoosePuckSupportPosition(p);
+    return {
+        tx: support.x,
+        ty: support.y,
+        action: "none"
+    };
+}
+
+
+
+// ============================================================================
+// UTILITY HELPERS
+// ============================================================================
+
+// Check if this skater is closest teammate to a given target
+function isClosestTeammateToTarget(p, target) {
+    const myDist = Math.hypot(p.x - target.x, p.y - target.y);
+
+    for (const o of players) {
+        if (o.team !== p.team) continue;
+        if (o === p) continue;
+
+        const d = Math.hypot(o.x - target.x, o.y - target.y);
+        if (d < myDist) return false;
+    }
+
+    return true;
+}
+
+
+
+
+
+
+
+
+
+function findBestPassTargetFor(team) {
+    let best = null;
+    let bestScore = -999999;
+
+    for (const p of players) {
+        if (p.team !== team) continue;     // only that team
+        if (p.type !== "skater") continue; // ignore goalie
+
+        // Simple scoring:
+        // farther from puck carrier = better passing target
+        // more open = better
+        const dx = puck.x - p.x;
+        const dy = puck.y - p.y;
+        const dist = Math.hypot(dx, dy);
+
+        let score = dist;
+
+        // open-space bonus (not near defenders)
+        let open = 0;
+        for (const o of players) {
+            if (o.team === team) continue;
+            const d2 = Math.hypot(o.x - p.x, o.y - p.y);
+            if (d2 < 100) open -= (100 - d2);  // losing openness
+        }
+        score += open * 0.5;
+
+        if (score > bestScore) {
+            bestScore = score;
+            best = p;
+        }
+    }
+
+    return best;
+}
+
+
+
+
+
+
+// =========================================================
+// GOALIE AI HELPERS
+// =========================================================
+function findGoaliePassTarget(goalie) {
+    let bestTarget = null;
+    let bestScore = -999;
+
+    const weAttackRight = (goalie.team === 0) ? team0AttacksRight : !team0AttacksRight;
+    const forwardDir = weAttackRight ? 1 : -1;
+
+    for (const mate of players) {
+        if (mate.team !== goalie.team || mate.id === goalie.id || mate.type !== "skater") continue;
+
+        let score = 0;
+
+        // A. DISTANCE
+        const dist = Math.hypot(mate.x - goalie.x, mate.y - goalie.y);
+        if (dist < 60) score -= 20; // Don't pass to someone in your face
+        if (dist > 450) score -= 10; 
+
+        // B. POSITIONING (Wide is safe)
+        const distFromCenterY = Math.abs(mate.y - RY);
+        if (distFromCenterY > 100) score += 10; 
+        
+        // C. FORWARD PROGRESS
+        const relativeX = (mate.x - goalie.x) * forwardDir;
+        if (relativeX < 10) continue; // VETO: Don't pass behind or parallel
+
+        // D. OPPONENT PRESSURE (STRICTER)
+        let isSafe = true;
+        for (const opp of players) {
+            if (opp.team === goalie.team) continue;
+            
+            // Is opponent breathing on the receiver?
+            const dToMate = Math.hypot(opp.x - mate.x, opp.y - mate.y);
+            if (dToMate < 60) { score -= 50; }
+
+            // Is opponent blocking the lane?
+            const distToLane = pointLineDistance(goalie.x, goalie.y, mate.x, mate.y, opp.x, opp.y);
+            if (distToLane < 30) { // 30px width check
+                const dGoalieToOpp = Math.hypot(opp.x - goalie.x, opp.y - goalie.y);
+                // Only matters if opponent is closer than the teammate
+                if (dGoalieToOpp < dist) {
+                    isSafe = false; 
+                    break; // Blocked.
+                }
+            }
+        }
+
+        if (!isSafe) continue; // Skip this target
+
+        if (score > bestScore) {
+            bestScore = score;
+            bestTarget = mate;
+        }
+    }
+
+    return (bestScore > -10) ? bestTarget : null;
+}
+
+
+
+
+
+
+// ---------------------------------------------------------------------------
+// Helpers supporting the above decisions
+// ---------------------------------------------------------------------------
+function findOpenIce(p) {
+    // Move perpendicular to puck direction
+    const angle = Math.atan2(p.vy, p.vx) + Math.PI/2;
+    return {
+        x: Math.cos(angle) * 60,
+        y: Math.sin(angle) * 60
+    };
+}
+
+function findOpenIceScore(p) {
+    let score = 0;
+
+    for (const o of players) {
+        if (o.team !== p.team) continue;
+        const d = Math.hypot(o.x - p.x, o.y - p.y);
+        if (d < 50) score -= 2;   // too close to teammate
+    }
+
+    return score;
+}
+
+function isPressured(p) {
+    for (const o of players) {
+        if (o.team === p.team) continue;
+        const d = Math.hypot(o.x - p.x, o.y - p.y);
+        if (d < 50) return true;
+    }
+    return false;
+}
+
+function chooseCarryLane(p) {
+    // Aim for enemy goal but slightly off-angle for variety
+    const goalX = (p.team === 0) ? goal2 : goal1;
+    const goalY = RY + (Math.random()*60 - 30);
+    return { x: goalX, y: goalY };
+}
+
+function findInterceptionPoint(me, owner) {
+    // Stand between puck carrier and our goal
+    const goalX = (me.team === 0) ? goal1 : goal2;
+    const midX = (owner.x + goalX) / 2;
+    return { x: midX, y: RY };
+}
+
+function findLoosePuckSupportPosition(p) {
+    // Just hang back a bit near center
+    return {
+        x: RX + (Math.random()*40 - 20),
+        y: RY + (Math.random()*40 - 20)
+    };
+}
+
+
+function defendsLeft(team) {
+    return (team === 0) ? team0AttacksRight : !team0AttacksRight;
+}
+
+
+
+
+
+
+
+function updateAISkater(p) {
+    // 1. STUN CHECK 
+    if (p.stunTimer > 0) {
+        p.stunTimer--;
+        p.vx *= 0.95; p.vy *= 0.95;
+        p.x += p.vx; p.y += p.vy;
+        p.angle += (p.stunRot || 0.2); 
+        collideWithRink(p, p.size/2);
+        return; 
+    }
+
+    // 2. Decrement Cooldowns
+    if (p.shootCooldown > 0) p.shootCooldown--;
+    if (p.passCooldown > 0) p.passCooldown--;
+
+    // Track Possession
+    if (p.id === puck.ownerId) {
+        p.possessionTime = (p.possessionTime || 0) + 1;
+    } else {
+        p.possessionTime = 0;
+    }
+
+    // =========================================================
+    // 3. AI STRATEGY DECISION
+    // =========================================================
+    let d = null;
+    const activeStrategy = (p.team === 0) ? Team0_Strategy : Team1_Strategy;
+
+    if (activeStrategy) {
+        d = activeStrategy.think(p);
+    } else {
+        d = { tx: p.x, ty: p.y, action: "none" };
+    }
+
+    // This catches ANY strategy returning null, undefined, or "FAILURE"
+    if (!d || typeof d.tx === 'undefined') {
+        d = { tx: p.x, ty: p.y, action: "none" };
+    }
+    // *******************************
+
+    // =========================================================
+    // *** BRAIN STEM OVERRIDE: ANTI-CAMPING & DELAYED OFFSIDE ***
+    // =========================================================
+    
+    const isDelayed = (offsideState.active && offsideState.team === p.team);
+    let isCamping = false;
+    
+    if (puck.ownerId !== p.id) {
+        const blueLineOffset = 110; 
+        const rightLine = RX + blueLineOffset;
+        const leftLine  = RX - blueLineOffset;
+        const attackingRight = (p.team === 0) ? team0AttacksRight : !team0AttacksRight;
+
+        if (attackingRight) {
+            if (p.x > rightLine && puck.x <= rightLine) isCamping = true;
+        } else {
+            if (p.x < leftLine && puck.x >= leftLine) isCamping = true;
+        }
+    }
+
+    if (isDelayed || isCamping) {
+        const attackingRight = (p.team === 0) ? team0AttacksRight : !team0AttacksRight;
+        const dir = attackingRight ? 1 : -1;
+        d.tx = RX + (dir * 100); 
+        d.ty = RY; 
+        d.action = "none"; 
+    }
+
+    // =========================================================
+    // NAVIGATION LAYER
+    // =========================================================
+    
+    let navTarget = getNetAvoidanceTarget(p, d.tx, d.ty);
+    
+    if (d.action === "none") {
+        navTarget = applyEvasion(p, navTarget.x, navTarget.y);
+    }
+
+    // Behind Net Escape
+    {
+        const netLeftX  = Math.min(goal1, goal2);
+        const netRightX = Math.max(goal1, goal2);
+        const puckBehindLeft  = (puck.x < netLeftX - 20);
+        const puckBehindRight = (puck.x > netRightX + 20);
+        const puckBehindNet   = puckBehindLeft || puckBehindRight;
+
+        if (!puckBehindNet) {
+            const trapY = 80;
+            const behindLeft = (p.x < netLeftX - 20) && (Math.abs(p.y - RY) < trapY);
+            const behindRight = (p.x > netRightX + 20) && (Math.abs(p.y - RY) < trapY);
+
+            if (behindLeft || behindRight) {
+                const escapeUp = (p.y < RY);
+                const escapeSpeed = escapeUp ? -100 : 100;
+                navTarget = { x: navTarget.x, y: p.y + escapeSpeed };
+            }
+        }
+    }
+
+    // 4. PHYSICS & ORIENTATION
+    const dx = navTarget.x - p.x;
+    const dy = navTarget.y - p.y;
+    const moveAngle = Math.atan2(dy, dx);
+    const distToTarget = Math.hypot(dx, dy);
+
+    let desiredFacing = moveAngle;
+    const hasPuck = (puck.ownerId === p.id);
+
+    if (hasPuck) {
+        if (d.action === "shoot") {
+            desiredFacing = Math.atan2(d.ty - p.y, d.tx - p.x);
+        } else if (d.action === "pass" && d.target) {
+            desiredFacing = Math.atan2(d.target.y - p.y, d.target.x - p.x);
+        }
+    } else if (distToTarget < 20) {
+        desiredFacing = Math.atan2(puck.y - p.y, puck.x - p.x);
+    }
+
+    let angleDiff = normalizeAngle(desiredFacing - p.angle);
+    let currentTurnRate = p.turnRate * 1.5; 
+    angleDiff = clamp(angleDiff, -currentTurnRate, currentTurnRate);
+    p.angle += angleDiff;
+
+    // --- STANDARD FRICTION ---
+    let speedDecay = (1 - p.friction);
+    p.vx *= speedDecay;
+    p.vy *= speedDecay;
+
+    // --- THROTTLE CONTROL ---
+    let drive = 0.08; 
+    if (p.role === "C" || p.role === "S" || p.role === "Attacker") drive = 0.10; 
+    if (distToTarget < 4) drive = 0; 
+
+    // =========================================================
+    // *** THE FIX: SMART APPROACH BRAKING ***
+    // =========================================================
+    const isChasingLoose = (puck.ownerId === null && distToTarget < 60);
+    
+    if (isChasingLoose) {
+        const currentSpeed = Math.hypot(p.vx, p.vy);
+        
+        // CONDITION: Only brake if fast AND misaligned.
+        // If angleDiff is small (< 0.4 rads / ~20 degrees), we are aiming straight at it.
+        // In that case, DO NOT BRAKE. Drive through.
+        if (currentSpeed > 1.5 && Math.abs(angleDiff) > 0.4) {
+            drive = 0; 
+            p.vx *= 0.92; 
+            p.vy *= 0.92; 
+        }
+    }
+    // =========================================================
+
+    if (drive > 0) {
+        p.vx += Math.cos(p.angle) * drive;
+        p.vy += Math.sin(p.angle) * drive;
+        p.isAccelerating = true; 
+    } else {
+        p.isAccelerating = false; 
+    }
+
+    if (typeof applyAISkatingPhysics === "function") {
+        applyAISkatingPhysics(p); 
+    } else {
+        const sp = Math.hypot(p.vx, p.vy);
+        if (sp > p.maxSpeed) {
+            const s = p.maxSpeed / sp;
+            p.vx *= s; p.vy *= s;
+        }
+    }
+
+    p.x += p.vx;
+    p.y += p.vy;
+
+    collideWithRink(p, p.size / 2);
+
+    // 5. Actions
+    tryPickupPuck(p);
+
+    if (puck.ownerId !== null && puck.ownerId !== p.id) {
+        const owner = getPlayerById(puck.ownerId);
+        if (owner && owner.team !== p.team) {
+            if (!goalieLocked) tryStealPuck(p, owner);
+        }
+    }
+
+    if (hasPuck) {
+        if (d.action === "shoot") {
+            if (Math.abs(angleDiff) < 0.8) {
+                p.angle = desiredFacing; 
+                shootPuck(p);
+            }
+        } else if (d.action === "pass" && d.target) {
+            if (Math.abs(angleDiff) < 0.8) {
+                p.passCooldown = 90; 
+                passPuckToTeammate(p, d.target);
+            }
+        }
+    }
+}
+
+
+
+
+function updateGoalie(p) {
+
+    // 1. Decrement Save Cooldown
+    if (p.saveCooldown > 0) p.saveCooldown--;
+
+    const owned = (puck.ownerId === p.id) ? puck : null;
+
+    // ============================================================
+    // 1. DEAD PUCK COVER (Butt Check)
+    // ============================================================
+    if (!owned && puck.ownerId === null) {
+        const dist = Math.hypot(puck.x - p.x, puck.y - p.y);
+        const puckSpeed = Math.hypot(puck.vx, puck.vy);
+        if (dist < 32 && puckSpeed < 0.05) {
+            puck.ownerId = p.id;
+            puck.vx = 0;
+            puck.vy = 0;
+            goalieFreezeTimer = performance.now(); 
+            return; 
+        }
+    }
+
+    // ============================================================
+    // 2. POSSESSION LOGIC
+    // ============================================================
+    if (owned) {
+        const AUTO_DUMP_MS = 600; 
+        const FREEZE_WHISTLE_MS = 2000; 
+
+        const stickDist = p.size / 2 + owned.r + 3;
+        owned.x = p.x + Math.cos(p.angle) * stickDist;
+        owned.y = p.y + Math.sin(p.angle) * stickDist;
+        owned.vx = 0; owned.vy = 0;
+
+        if (performance.now() - goalieFreezeTimer > FREEZE_WHISTLE_MS) {
+            whistle("Goalie Freezes Puck");
+            return;
+        }
+
+        // AUTO-DUMP / CLEAR DECISION
+        if (performance.now() - goalieFreezeTimer > AUTO_DUMP_MS) {
+            
+            // A. SAFETY: WAIT IF CROWDED
+            let closestOppDist = 9999;
+            for (const o of players) {
+                if (o.team !== p.team) {
+                    const d = Math.hypot(o.x - p.x, o.y - p.y);
+                    if (d < closestOppDist) closestOppDist = d;
+                }
+            }
+            // If opponent is literally hugging the goalie, wait for whistle
+            if (closestOppDist < 35) return; 
+
+            // B. TRY SMART PASS
+            const target = findGoaliePassTarget(p);
+
+            if (target) {
+                p.angle = Math.atan2(target.y - p.y, target.x - p.x);
+                shootPuck(p, 5.5); 
+            } 
+            else {
+                // C. SMART CLEAR (SCAN ANGLES)
+                // Don't just shoot blindly. Find the open lane.
+                
+                const weAttackRight = (p.team === 0) ? team0AttacksRight : !team0AttacksRight;
+                const forwardDir = weAttackRight ? 1 : -1;
+                const baseAngle = (forwardDir === 1) ? 0 : Math.PI;
+
+                // Check 3 Angles: High Glass, Low Glass, Center
+                const candidates = [ baseAngle - 0.7, baseAngle + 0.7, baseAngle ];
+                
+                let bestAngle = candidates[0];
+                let maxSafetyScore = -9999;
+
+                for (let ang of candidates) {
+                    // Cast a "ray" 150px out
+                    const tx = p.x + Math.cos(ang) * 150;
+                    const ty = p.y + Math.sin(ang) * 150;
+                    
+                    // Score this angle based on enemy proximity
+                    let laneScore = 100; 
+                    
+                    for (const o of players) {
+                        if (o.team !== p.team) {
+                            // Distance to the flight path
+                            const dToLine = pointLineDistance(p.x, p.y, tx, ty, o.x, o.y);
+                            const dToGoalie = Math.hypot(o.x - p.x, o.y - p.y);
+                            
+                            // Penalize if enemy is close to this lane AND close to goalie
+                            if (dToGoalie < 150 && dToLine < 40) {
+                                // Closer enemies = Higher Penalty
+                                laneScore -= (200 - dToGoalie); 
+                            }
+                        }
+                    }
+                    
+                    if (laneScore > maxSafetyScore) {
+                        maxSafetyScore = laneScore;
+                        bestAngle = ang;
+                    }
+                }
+
+                p.angle = bestAngle;
+                shootPuck(p, 6.0); // Hard clear
+            }
+            
+            puckStealCooldown = 30; 
+            goalieFreezeTimer = 0; 
+            goalieLocked = false; 
+            return;
+        }
+
+        // Visual Lock Logic (Harassment)
+        if (goalieLocked) {
+            goalieDumpAttempts++;
+            if (goalieDumpAttempts > 100) {
+                whistle("Goalie Freezes Puck");
+                goalieDumpAttempts = 0;
+            }
+            return;
+        }
+        return;
+    }
+
+    // ============================================================
+    // 3. POSITIONING LOGIC (No Puck)
+    // ============================================================
+    const dx = puck.x - p.x;
+    const dy = puck.y - p.y;
+    const defendX = (p.team === 0) ? goal1 : goal2; 
+    const defendY = RY; 
+    const defendingLeft = (defendX < RX);
+    const forwardDir = defendingLeft ? 1 : -1;
+    const puckInDefHalf = defendingLeft ? (puck.x < RX) : (puck.x > RX);
+
+    // Lateral
+    let targetY = RY;
+    if (puckInDefHalf) targetY = puck.y;
+    targetY = clamp(targetY, RY - 18, RY + 18);
+    p.y += clamp(targetY - p.y, -p.maxSpeed, p.maxSpeed);
+
+    // Angle
+    const base = Math.atan2(p.y - defendY, p.x - defendX); 
+    const desired = Math.atan2(dy, dx); 
+    let diff = normalizeAngle(desired - base);
+    diff = clamp(diff, -1.2, 1.2); 
+    p.angle = base + diff;
+
+    // Depth
+    const angleFromCenter = Math.abs(Math.sin(p.angle)); 
+    const currentOffset = 20 - (angleFromCenter * (20 - 6));
+    const idealX = defendX + (forwardDir * currentOffset);
+    p.x += clamp(idealX - p.x, -p.maxSpeed, p.maxSpeed);
+
+    collideWithRink(p, p.size / 2);
+}
+
+
+
+
+
+function updateAIUsingNN(p) {
+    const inputs = buildAIInputs(p);
+    const outputs = aiForwardPass(inputs, p.brain);
+
+    // NN Output Order:
+    const accel = outputs[0];  // forward thrust
+    const brake = outputs[1];  // slow down
+    const turnL = outputs[2];  // turn left
+    const turnR = outputs[3];  // turn right
+
+    // --- Angle control ---
+    if (turnL > 0.1) p.angle -= p.turnRate * turnL;
+    if (turnR > 0.1) p.angle += p.turnRate * turnR;
+
+    // --- Velocity control ---
+    if (accel > 0.1) {
+        const force = accel * 0.08;
+        p.vx += Math.cos(p.angle) * force;
+        p.vy += Math.sin(p.angle) * force;
+    }
+
+    if (brake > 0.1) {
+        const factor = 1 - 0.03 * brake;
+        p.vx *= factor;
+        p.vy *= factor;
+    } else {
+        p.vx *= (1 - p.friction);
+        p.vy *= (1 - p.friction);
+    }
+
+    const sp = Math.hypot(p.vx, p.vy);
+    if (sp > p.maxSpeed) {
+        const s = p.maxSpeed / sp;
+        p.vx *= s;
+        p.vy *= s;
+    }
+
+    p.x += p.vx;
+    p.y += p.vy;
+
+    collideWithRink(p, p.size/2);
+    tryPickupPuck(p);
+
+    if (puck.ownerId !== null && puck.ownerId !== p.id) {
+        const owner = getPlayerById(puck.ownerId);
+        if (owner && owner.team !== p.team) {
+                if (!goalieLocked) {
+                    tryStealPuck(p, owner);
+                }
+
+        }
+    }
+
+    if (puck.ownerId === p.id && Math.random() < 0.05) {
+        shootPuck(p);
+    }
+}
+
+
+function updateCelebration(p) {
+    // 1. Slow everyone down (friction)
+    p.vx *= 0.9;
+    p.vy *= 0.9;
+
+    // Goal scorer stays put — teammates skate to him
+    const scorer = getPlayerById(lastGoalScorerId);
+    const celebrationX = scorer ? scorer.x : puck.x;
+    const celebrationY = scorer ? scorer.y : puck.y;
+
+    // ===========================================
+    // SCORING TEAM: Huddle at the slot
+    // ===========================================
+    if (p.team === lastGoalTeam) {
+        const dx = celebrationX - p.x;
+        const dy = celebrationY - p.y;
+        const dist = Math.hypot(dx, dy);
+
+        // If far away, skate slowly toward huddle
+        if (dist > 30) {
+            const angle = Math.atan2(dy, dx);
+            p.angle = angle;
+            // move at slow "gliding" speed
+            p.x += Math.cos(angle) * 1.8;
+            p.y += Math.sin(angle) * 1.8;
+        } else {
+            // If in the huddle, spin slowly in victory
+            p.angle += 0.05;
+        }
+    } 
+    // ===========================================
+    // LOSING TEAM: Stop and look away in shame
+    // ===========================================
+    else {
+        // If Team 0 lost (Goal 1 conceded), look Right (0) away from net
+        // If Team 1 lost (Goal 2 conceded), look Left (PI) away from net
+        const shameAngle = (lastGoalTeam === 0) ? Math.PI : 0;
+
+        // Smoothly turn head to shame angle
+        let diff = normalizeAngle(shameAngle - p.angle);
+        p.angle += diff * 0.1;
+        
+        // (Velocity is already killed by friction at top)
+    }
+
+    // Keep them inside walls
+    collideWithRink(p, p.size/2);
+}
+
+
+
+function updatePlayer(p) {
+    
+    // === NEW: CELEBRATION OVERRIDE ===
+    // If a goal happened and we are waiting for reset:
+    if (goalResetTimer > performance.now() && lastGoalTeam !== null) {
+        if (p.type === "skater") {
+            updateCelebration(p);
+            return; // Stop here, don't run normal AI
+        }
+        // Goalies can just chill (or add goalie shame logic here if you want)
+        if (p.type === "goalie") {
+             p.vx *= 0.9;
+             p.vy *= 0.9;
+             return;
+        }
+    }
+    // =================================
+    
+    
+    
+    
+    if (p.type === "skater") {
+
+        // --- TRAINING MODE OVERRIDE ---
+        if (TRAINING_MODE && p.team === 0) {
+            updateAIUsingNN(p);
+            return;
+        }
+        if (TRAINING_MODE) {
+            updateAISkater(p);
+            return;
+        }
+
+        // --- PLAY MODE ---
+        if (p.isHuman) updateHumanSkater(p);
+        else           updateAISkater(p);
+
+        return;
+    }
+
+    if (p.type === "goalie") {
+        updateGoalie(p);
+    }
+}
+
+
+// Check if any player is "Camping" in the offensive zone early
+// Returns: 0 (Team 0), 1 (Team 1), or null (Clean)
+function checkPlayerOffsidePosition() {
+    const blueLineL = RX - 110; 
+    const blueLineR = RX + 110;
+    
+    // 1. Determine Zone Boundaries based on attack direction
+    // Team 0
+    const t0_AttackingRight = team0AttacksRight;
+    // Team 1 (Always opposite of Team 0)
+    const t1_AttackingRight = !team0AttacksRight;
+
+    for (const p of players) {
+        if (p.type !== "skater") continue;
+
+        // --- CHECK TEAM 0 PLAYERS ---
+        if (p.team === 0) {
+            if (t0_AttackingRight) {
+                // Zone starts at Right Blue Line. 
+                // Offside if: Player > Line AND Puck <= Line
+                if (p.x > blueLineR && puck.x <= blueLineR) return 0;
+            } else {
+                // Zone starts at Left Blue Line.
+                // Offside if: Player < Line AND Puck >= Line
+                if (p.x < blueLineL && puck.x >= blueLineL) return 0;
+            }
+        }
+        
+        // --- CHECK TEAM 1 PLAYERS ---
+        else if (p.team === 1) {
+            if (t1_AttackingRight) {
+                if (p.x > blueLineR && puck.x <= blueLineR) return 1;
+            } else {
+                if (p.x < blueLineL && puck.x >= blueLineL) return 1;
+            }
+        }
+    }
+
+    return null; // No one is offside
+}
+
+
+
+function checkGoalieFreeze() {
+    if (puck.ownerId === null) return false;
+
+    const owner = getPlayerById(puck.ownerId);
+    if (!owner || owner.type !== "goalie") return false;
+
+    // Time the goalie has held the puck
+    const heldMs = performance.now() - goalieFreezeTimer;
+
+    return heldMs > 2000;  // 3 seconds
+}
+
+
+
+// =========================================================
+// CLOCK & SCORE LOGIC (Simplified for Canvas)
+// =========================================================
+function formatTime(seconds) {
+    const min = Math.floor(seconds / 60);
+    const sec = Math.floor(seconds % 60);
+    
+    // Convert to string, but DO NOT pad minutes with a leading zero
+    const minStr = String(min); 
+    
+    // Always pad seconds (e.g., "05")
+    const secStr = String(sec).padStart(2, '0');
+    
+    return `${minStr}:${secStr}`;
+}
+
+
+
+
+
+function updateClock(now) {
+    const elapsed = (now - lastGameTimeUpdate) / 1000;
+
+    // Paused states: goals, faceoff pause, menus, intermission
+    const isPaused =
+        (goalResetTimer !== null && now < goalResetTimer) ||
+        now < faceoffPauseUntil ||
+        gameState !== "playing";
+
+    // Normal countdown
+    if (!isPaused && timeRemaining > 0) {
+        timeRemaining -= elapsed;
+
+        // Period just ended
+        if (timeRemaining <= 0) {
+            timeRemaining = 0;
+
+            // 1. Set the message based on period
+            const prev = currentPeriod; 
+            
+            if (prev < TOTAL_PERIODS) {
+                if (prev === 1) periodMessage = "End of 1st Period";
+                else if (prev === 2) periodMessage = "End of 2nd Period";
+            } else if (prev === TOTAL_PERIODS) {
+                periodMessage = "End of 3rd Period"; 
+            } else {
+                const otNum = prev - TOTAL_PERIODS; 
+                periodMessage = `End of ${otNum}${otNum === 1 ? 'st' : otNum === 2 ? 'nd' : otNum === 3 ? 'rd' : 'th'} OT Period`;
+            }
+
+            // 2. Set timer and enter INTERMISSION state (Freezes gameplay)
+            periodMessageUntil = performance.now() + 3000;
+            gameState = "intermission";
+
+            // 3. Create a waiter to handle the Reset AFTER the message finishes
+            const finalizePeriodChange = () => {
+                if (performance.now() >= periodMessageUntil) {
+                    
+                    // A. REGULATION PERIOD END
+                    if (currentPeriod < TOTAL_PERIODS) {
+                        currentPeriod++;
+                        startNextPeriod(); // Reset positions NOW
+                        gameState = "playing";
+                    } 
+                    // B. 3RD PERIOD / OT END
+                    else {
+                        if (scoreTeam0 === scoreTeam1) {
+                            // TIE -> Go to Next OT Period
+                            currentPeriod++;
+                            startNextPeriod();
+                            gameState = "playing";
+                        } else {
+                            // NO TIE -> Game Over
+                            gameState = "gameover";
+                            // console.log("Game Over – Final");
+                        }
+                    }
+                } else {
+                    // Keep checking
+                    requestAnimationFrame(finalizePeriodChange);
+                }
+            };
+
+            // Start waiting
+            requestAnimationFrame(finalizePeriodChange);
+        }
+    }
+
+    lastGameTimeUpdate = now;
+}
+
+
+
+
+// 1. RECORD A FRAME (High Fidelity + Lights)
+function captureReplayFrame() {
+    if (isReplaying) return;
+
+    // --- CAPTURE LIGHT STATE ---
+    let leftLight = false;
+    let rightLight = false;
+    
+    // Logic copied from live drawGoalLights to ensure accuracy
+    if (goalResetTimer !== null && performance.now() < goalResetTimer) {
+        if (team0AttacksRight) {
+            leftLight = (lastGoalTeam === 1);
+            rightLight = (lastGoalTeam === 0);
+        } else {
+            leftLight = (lastGoalTeam === 0);
+            rightLight = (lastGoalTeam === 1);
+        }
+    }
+
+    const frame = {
+        puck: { x: puck.x, y: puck.y, ownerId: puck.ownerId },
+        lights: { left: leftLight, right: rightLight }, // <--- SAVED HERE
+        players: []
+    };
+
+    for (const p of players) {
+        frame.players.push({
+            x: p.x, y: p.y, angle: p.angle, vx: p.vx, vy: p.vy,
+            id: p.id, team: p.team, role: p.role, size: p.size, isHuman: p.isHuman,
+            isAccelerating: p.isAccelerating, strideTick: p.strideTick,
+            debugText: p.debugText
+        });
+    }
+
+    replayBuffer.push(frame);
+
+    if (replayBuffer.length > REPLAY_BUFFER_SIZE) {
+        replayBuffer.shift();
+    }
+}
+
+
+
+
+// 2. START THE SHOW
+function startInstantReplay(callback) {
+    isReplaying = true;
+    replayIndex = 70; 
+    replayFinishedCallback = callback; 
+}
+
+
+
+
+
+
+// 3. RENDER THE REPLAY (High Fidelity)
+function renderReplay(ctx) {
+    const frameIdx = Math.floor(replayIndex);
+    const frame = replayBuffer[frameIdx];
+
+    if (!frame) {
+        isReplaying = false;
+        if (replayFinishedCallback) replayFinishedCallback();
+        return;
+    }
+
+    // 1. Draw Background
+    ctx.drawImage(offscreenCanvas, 0, 0); 
+
+    // 2. Draw Goal Lights (Using Recorded State)
+    // We pass true/false from the frame data directly to the override params
+    if (frame.lights) {
+        drawGoalLights(frame.lights.left, frame.lights.right);
+    } else {
+        drawGoalLights(false, false); // Fallback for old frames
+    }
+
+    // 3. Draw Replay Puck
+    ctx.save();
+    let drawX = frame.puck.x;
+    let drawY = frame.puck.y;
+    
+    if (frame.puck.ownerId !== null) {
+        const ownerData = frame.players.find(p => p.id === frame.puck.ownerId);
+        if (ownerData) {
+            const dist = ownerData.size/2 + 1.5 + 5;
+            drawX = ownerData.x + Math.cos(ownerData.angle) * dist;
+            drawY = ownerData.y + Math.sin(ownerData.angle) * dist;
+        }
+    }
+    
+    ctx.fillStyle = "#000";
+    ctx.fillRect(drawX - 1.5, drawY - 1.5, 3, 3);
+    ctx.restore();
+
+    // 4. Draw Replay Players
+    for (const pData of frame.players) {
+        const ghost = { ...pData };
+        drawPlayer(ghost);
+    }
+
+    // 5. Overlay
+    ctx.fillStyle = "red";
+    ctx.font = "bold 20px monospace";
+    ctx.fillText("REPLAY", W / 2 - 40, 40);
+    
+    replayIndex += 0.3444; 
+
+    if (replayIndex >= replayBuffer.length) {
+        isReplaying = false;
+        if (replayFinishedCallback) replayFinishedCallback();
+    }
+}
+
+
+
+
+function swapSides() {
+    // Flip goals
+    const oldGoal1 = goal1;
+    goal1 = goal2;
+    goal2 = oldGoal1;
+
+    // Flip every player position + facing direction
+    for (const p of players) {
+        // mirror horizontally around center RX
+        p.x = RX + (RX - p.x);
+
+        // flip spawn positions too so next resets use correct sides
+        p.spawnX = RX + (RX - p.spawnX);
+
+        // flip goalie home anchors
+        if (p.type === "goalie") {
+            p.homeX = RX + (RX - p.homeX);
+        }
+
+        // flip angle
+        // p.angle = normalizeAngle(p.angle + Math.PI);
+    }
+    
+    // Force everyone to face the correct direction immediately
+    for (const p of players) {
+        const gx = (p.team === 0) ? goal2 : goal1;
+        const gy = RY;
+
+        // point stick toward the new attacking direction
+        p.angle = Math.atan2(gy - p.y, gx - p.x);
+    }
+    
+    // *** NEW: Flip attack direction flag ***
+    team0AttacksRight = !team0AttacksRight;
+}
+
+
+
+
+function startNextPeriod() {
+    // console.log("Starting Period", currentPeriod);
+
+    timeRemaining = PERIOD_LENGTH_SECONDS;
+    lastGameTimeUpdate = performance.now();
+
+    swapSides();
+    
+    // Call faceoff reset to position players (sets faceoffPauseUntil = 800ms)
+    doFaceoffReset(); 
+
+    // --- FIX: OVERRIDE FACE-OFF PAUSE TO MATCH MESSAGE DURATION ---
+    // This ensures the game remains paused for the full 3 seconds 
+    // while the "End of Period" message is on screen.
+    faceoffPauseUntil = performance.now() + 3000; 
+    // -------------------------------------------------------------
+}
+
+
+
+
+
+function drawBroadcastScoreboard() {
+    // --- MAIN CONTAINER CONFIG ---
+    const x = 100;    
+    const y = 20;     
+    const w = 200;    
+    const h = 40;     
+    const r = 8;      
+
+    // --- CALCULATE DATA ---
+    const goalie0 = players.find(p => p.team === 0 && p.type === "goalie");
+    const goalie1 = players.find(p => p.team === 1 && p.type === "goalie");
+    const sog0 = scoreTeam0 + (goalie1 ? goalie1.saves : 0);
+    const sog1 = scoreTeam1 + (goalie0 ? goalie0.saves : 0);
+
+    // Calculate Period String
+    let periodText = "";
+    if (currentPeriod === 1) periodText = "1ST ";
+    else if (currentPeriod === 2) periodText = "2ND ";
+    else if (currentPeriod === 3) periodText = "3RD ";
+    else periodText = "OT" + (currentPeriod - 3) + " "; // OT1, OT2, etc.
+
+    // Calculate Clock String
+    let clockText = formatTime(timeRemaining);
+    if (gameState === 'intermission') clockText = "INT"; // Shortened for space
+    else if (gameState === 'gameover') clockText = "END";
+
+    ctx.save();
+
+    // 1. DRAW MAIN WHITE BACKGROUND
+    ctx.beginPath();
+    ctx.moveTo(x, y);             
+    ctx.lineTo(x + w, y);         
+    ctx.lineTo(x + w, y + h - r); 
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h); 
+    ctx.lineTo(x, y + h);         
+    ctx.lineTo(x, y);             
+    ctx.closePath();
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+
+
+    // 2. INNER RECTANGLES SETUP
+    const rectW = 60;
+    const rectH = 25;
+    const gap = 2; 
+    
+    const totalInnerW = (rectW * 2) + gap;
+    const startX = x + (w - totalInnerW) / 2; 
+    const rectY = y; 
+
+    // 3. DRAW COLORED TABS
+    // Team 0 (Left)
+    ctx.fillStyle = TEAM0_COLOR;
+    ctx.fillRect(startX, rectY, rectW, rectH);
+
+    // Get Codes from current strategies (Default to "BLU"/"RED" if missing)
+    const code0 = Team0_Strategy ? Team0_Strategy.code : "BLU";
+    const code1 = Team1_Strategy ? Team1_Strategy.code : "RED";
+
+
+    // Team 1 (Right)
+    const rightBoxX = startX + rectW + gap;
+    ctx.fillStyle = TEAM1_COLOR;
+    ctx.fillRect(rightBoxX, rectY, rectW, rectH);
+
+    // 4. DRAW SCORES & NAMES
+    ctx.fillStyle = "#ffffff";
+    ctx.textBaseline = "middle"; 
+
+    // Team 0
+    ctx.textAlign = "left";
+    ctx.font = "12px Arial"; 
+    ctx.fillText(code0, startX + 5, rectY + rectH/2 + 1);
+
+    ctx.textAlign = "right";
+    ctx.font = "bold 16px Arial"; 
+    ctx.fillText(scoreTeam0, startX + rectW - 5, rectY + rectH/2 + 1);
+
+    // Team 1
+    ctx.textAlign = "left";
+    ctx.font = "12px Arial"; 
+    ctx.fillText(code1, rightBoxX + 5, rectY + rectH/2 + 1);
+
+    ctx.textAlign = "right";
+    ctx.font = "bold 16px Arial"; 
+    ctx.fillText(scoreTeam1, rightBoxX + rectW - 5, rectY + rectH/2 + 1);
+
+    // 5. DRAW CLOCK & PERIOD (Top Right Stack)
+    ctx.fillStyle = "#000000";
+    ctx.textAlign = "right";
+    
+    // Clock (Top half of the space)
+    ctx.font = "bold 14px Arial"; 
+    ctx.fillText(clockText, x + w - 8, y + 14); 
+
+    // Period (Bottom half of the space)
+    ctx.font = "10px Arial"; 
+    ctx.fillText(periodText, x + w - 8, y + 28); 
+
+    // 6. DRAW SHOTS (Bottom Center Strip)
+    const bottomCenterY = y + 33; 
+    const centerX = x + w / 2;
+
+    ctx.textAlign = "center";
+    ctx.font = "bold 10px Arial"; 
+    ctx.fillText("SHOTS", centerX, bottomCenterY);
+
+    ctx.font = "12px Arial";
+    ctx.fillText(sog0, centerX - 35, bottomCenterY); 
+    ctx.fillText(sog1, centerX + 35, bottomCenterY); 
+
+    ctx.restore();
+
+
+
+        // Add this inside drawScoreboard or drawBroadcastScoreboard
+    if (pendingRosterChanges.team0 !== 0 || pendingRosterChanges.team1 !== 0) {
+        ctx.save();
+        ctx.font = "bold 16px Arial";
+        ctx.fillStyle = "#ffff00"; // Yellow warning text
+        ctx.textAlign = "center";
+        
+        let msg = "ROSTER CHANGE PENDING (WAIT FOR WHISTLE)";
+        // Draw it just below the scoreboard
+        ctx.fillText(msg, W/2, 110); 
+        
+        // Optional: Show specific details
+        let detail = "";
+        if (pendingRosterChanges.team0 !== 0) detail += `Blue: ${pendingRosterChanges.team0 > 0 ? '+' : ''}${pendingRosterChanges.team0} `;
+        if (pendingRosterChanges.team1 !== 0) detail += `Red: ${pendingRosterChanges.team1 > 0 ? '+' : ''}${pendingRosterChanges.team1}`;
+        
+        ctx.font = "12px Arial";
+        ctx.fillText(detail, W/2, 130);
+        ctx.restore();
+    }
+}
+
+
+
+// =========================================================
+// NEW CANVAS SCOREBOARD DRAWING
+// =========================================================
+function drawScoreboard() {
+    const centerX = W / 2;
+    const topMargin = 50;
+    const fontHeight = 40;
+    const timeStr = formatTime(timeRemaining);
+    
+    // Find Goalies to get stats
+    const goalie0 = players.find(p => p.team === 0 && p.type === "goalie");
+    const goalie1 = players.find(p => p.team === 1 && p.type === "goalie");
+
+    // CALCULATE SHOTS ON GOAL (SOG)
+    // Team 0 SOG = Team 0 Goals + Goalie 1 Saves
+    const sog0 = scoreTeam0 + (goalie1 ? goalie1.saves : 0);
+
+    // Team 1 SOG = Team 1 Goals + Goalie 0 Saves
+    const sog1 = scoreTeam1 + (goalie0 ? goalie0.saves : 0);
+
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    // 1. Period
+    ctx.font = "24px Arial";
+    ctx.fillStyle = "#fff";
+    ctx.fillText("P" + currentPeriod, centerX, topMargin - 35);
+
+    // 2. Scores
+    ctx.font = `bold ${fontHeight}px Arial`;
+    
+    // Team 0 (Blue/Left)
+    ctx.fillStyle = TEAM0_COLOR; 
+    ctx.fillText(scoreTeam0, centerX - 100, topMargin);
+    
+    // Team 1 (Red/Right)
+    ctx.fillStyle = TEAM1_COLOR; 
+    ctx.fillText(scoreTeam1, centerX + 100, topMargin);
+
+    // 3. Shots on Goal (UPDATED)
+    ctx.font = "14px Arial";
+    ctx.fillStyle = "#bbb";
+    
+    // Display SOG under the score
+    ctx.fillText(`SOG: ${sog0}`, centerX - 100, topMargin + 30);
+    ctx.fillText(`SOG: ${sog1}`, centerX + 100, topMargin + 30);
+
+    // 4. Clock
+    ctx.font = `${fontHeight}px Arial`; 
+    ctx.fillStyle = "#fff"; 
+    ctx.fillText(timeStr, centerX, topMargin);
+}
+
+
+
+
+
+function drawGameOverOverlay() {
+    ctx.save();
+    ctx.fillStyle = "rgba(0,0,0,0.25)";
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 60px Arial";
+    ctx.fillText("GAME OVER", W/2, H/2);
+
+    let winner;
+    if (scoreTeam0 > scoreTeam1) winner = "TEAM 0 WINS!";
+    else if (scoreTeam1 > scoreTeam0) winner = "TEAM 1 WINS!";
+    else winner = "TIE GAME";
+
+    ctx.font = "40px Arial";
+    // ctx.fillText(winner, W/2, H/2 + 10);
+
+    ctx.font = "24px Arial";
+    // ctx.fillText("Press ESC for Menu", W/2, H/2 + 70);
+
+    ctx.restore();
+}
+
+
+function handleGameOver(now) {
+    // Freeze gameplay but still render
+    if (!TRAINING_MODE || WATCH_MODE) {
+        renderFrame();
+        drawGameOverOverlay();
+    }
+    requestAnimationFrame(loop);
+}
+
+
+
+
+
+
+
+function checkGoal() {
+    if (isResetActive()) return;
+
+    const r = puck.r;
+    const physicalLeftGoal = Math.min(goal1, goal2);
+    const physicalRightGoal = Math.max(goal1, goal2);
+    const leftTriggerLine = physicalLeftGoal - 5;
+    const rightTriggerLine = physicalRightGoal + 5;
+
+    function crossedVertLine(lineX) {
+        return (puck.px - r > lineX && puck.x - r <= lineX) ||
+               (puck.px + r < lineX && puck.x + r >= lineX) ||
+               (puck.px + r > lineX && puck.x + r <= lineX) ||
+               (puck.px - r < lineX && puck.x - r >= lineX);
+    }
+
+    const top = topY;
+    const bottom = botY;
+    const inY = puck.y >= top && puck.y <= bottom;
+    const isOvertime = currentPeriod > TOTAL_PERIODS;
+
+    // --- LEFT NET GOAL ---
+    if (inY && crossedVertLine(leftTriggerLine) && puck.vx < 0) {
+        const scoringTeam = team0AttacksRight ? 1 : 0; 
+        // console.log(`GOAL: Team ${scoringTeam} scores on the left net`);
+        
+        if (isOvertime) isSuddenDeathGoal = true; 
+        
+        // NO WHISTLE CALL HERE. Just start the party.
+        resetAfterGoal(scoringTeam);
+        return;
+    }
+
+    // --- RIGHT NET GOAL ---
+    if (inY && crossedVertLine(rightTriggerLine) && puck.vx > 0) {
+        const scoringTeam = team0AttacksRight ? 0 : 1; 
+        // console.log(`GOAL: Team ${scoringTeam} scores on the right net`);
+        
+        if (isOvertime) isSuddenDeathGoal = true; 
+        
+        // NO WHISTLE CALL HERE. Just start the party.
+        resetAfterGoal(scoringTeam);
+        return;
+    }
+}
+
+
+
+
+
+function resetAfterGoal(scoringTeam) {
+
+    const isOvertimeWin = currentPeriod > TOTAL_PERIODS && scoringTeam !== -1;
+
+    // 1. Mark scorer and training goals
+    if (scoringTeam !== -1) {
+        lastGoalTeam = scoringTeam;
+        lastGoalScorerId = puck.lastOwnerId || null;
+        
+        // **FIX**: The TRAIN_TOTAL_GOALS++ was executed twice before; removed redundancy.
+        TRAIN_TOTAL_GOALS++;
+    }
+    
+    // 2. Apply Score Update (MUST happen here to show the final score)
+    // if (scoringTeam === 0) scoreTeam0++;
+    // if (scoringTeam === 1) scoreTeam1++;
+
+    // 3. Set Celebration Timer
+    goalResetTimer = performance.now() + 6000; // 6-second celebration
+    if (!puck.lastOwnerId) lastGoalScorerId = null;
+
+    // 4. Removed
+    
+
+    // 5. Apply Training Rewards
+    applyTrainingRewards(); // already computes p.reward
+
+    for (const p of players) {
+        if (TRAINING_MODE && p.team === 0 && p.brain && p.brain.w1) {
+            updateBrainWithReward(p);
+        }
+        p.reward = 0;
+    }
+    
+    ticksSinceLastGoal = 0; // reset the timeout tracker too
+}
+
+
+
+
+
+function doFaceoffReset() {
+
+    applyPendingRosterChanges();
+
+    puck.ownerId = null;
+    puck.vx = 0;
+    puck.vy = 0;
+    puck.x = RX;
+    puck.y = RY;
+
+    const spacingY = 55;
+
+    // Determine sides
+    const leftFaceoffTeam = team0AttacksRight ? 0 : 1;
+    const rightFaceoffTeam = 1 - leftFaceoffTeam; 
+
+    // 1. LEFT POSITIONS (RX - Offset)
+    // We move the 'defense' X from 20 to 100
+    const leftPositions = {
+        center: { x: RX - 20, y: RY },
+        wingers: [
+            { x: RX - 20, y: RY - spacingY },
+            { x: RX - 20, y: RY + spacingY }
+        ],
+        defense: [
+            { x: RX - 100, y: RY },                 // D1: Centered & Back
+            { x: RX - 100, y: RY + spacingY * 1.4 } // D2: Wide & Back (if 5v5)
+        ]
+    };
+    
+    // 2. RIGHT POSITIONS (RX + Offset)
+    // We move the 'defense' X from 20 to 100
+    const rightPositions = {
+        center: { x: RX + 20, y: RY },
+        wingers: [
+            { x: RX + 20, y: RY - spacingY },
+            { x: RX + 20, y: RY + spacingY }
+        ],
+        defense: [
+            { x: RX + 100, y: RY },                 // D1: Centered & Back
+            { x: RX + 100, y: RY + spacingY * 1.4 } // D2: Wide & Back
+        ]
+    };
+
+    const team0Pos = (0 === leftFaceoffTeam) ? leftPositions : rightPositions;
+    const team1Pos = (1 === leftFaceoffTeam) ? leftPositions : rightPositions;
+
+    // 3. BUILD THE QUEUE (Re-ordered for 3v3)
+    // Old Order: Center -> Wing1 -> Wing2 -> Def1 -> Def2
+    // New Order: Center -> Wing1 -> Def1  -> Wing2 -> Def2
+    // This ensures that in a 3-player team, the 3rd player is the Defenseman at x100.
+    const faceoffPos0 = [
+        team0Pos.center, 
+        team0Pos.wingers[0], 
+        team0Pos.defense[0],  // <--- The 3rd skater is now the Defenseman
+        team0Pos.wingers[1], 
+        team0Pos.defense[1]
+    ];
+    
+    const faceoffPos1 = [
+        team1Pos.center, 
+        team1Pos.wingers[0], 
+        team1Pos.defense[0], 
+        team1Pos.wingers[1], 
+        team1Pos.defense[1]
+    ];
+
+    let i0 = 0;
+    let i1 = 0;
+
+    for (const p of players) {
+        if (p.type !== "skater") continue;
+
+        // Assign positions from our new queue
+        if (p.team === 0) {
+            // Safety check to prevent crashing if you have >5 players
+            const pos = faceoffPos0[i0++] || { x: RX - 120, y: RY }; 
+            p.x = pos.x;
+            p.y = pos.y;
+        } else {
+            const pos = faceoffPos1[i1++] || { x: RX + 120, y: RY };
+            p.x = pos.x;
+            p.y = pos.y;
+        }
+
+        p.vx = 0;
+        p.vy = 0;
+
+        // Reset angles to face the puck
+        const attackGoalX = (p.team === 0) ? goal2 : goal1;
+        p.angle = Math.atan2(0, attackGoalX - p.x);
+    }
+
+    faceoffPauseUntil = performance.now() + 800;
+}
+
+
+
+
+
+function doGoalReset() {
+    // 1. Update Score and Clear Goal State
+    if (lastGoalTeam === 0) scoreTeam0++;
+    if (lastGoalTeam === 1) scoreTeam1++;
+    lastGoalTeam = null; // Clear the last goal state
+    goalResetTimer = null; // Clear the celebration timer
+
+    // 2. Reset puck to center (redundant, but safer than relying on doFaceoffReset)
+    puck.x = RX;
+    puck.y = RY;
+    puck.vx = 0;
+    puck.vy = 0;
+    puck.ownerId = null;
+    goalieFreezeTimer = 0;
+
+    // 3. Initiate detailed player positioning and faceoff pause
+    //    NOTE: This replaces all the manual player repositioning and
+    //    random Y-offset logic previously in this function.
+    doFaceoffReset();
+    
+    // The pause is usually initiated inside doFaceoffReset, but keeping it
+    // here ensures it happens regardless of what doFaceoffReset does.
+    startFaceoffPause();
+}
+
+
+
+
+function drawGoalLights(overrideLeft = null, overrideRight = null) {
+    const r = 12;
+    const leftX = RINK_X - 30; 
+    const rightX = RINK_X + RINK_W + 30; 
+    const y = RY;
+
+    const offColor = "#330000";
+    const onColor  = "#ff0000";
+
+    let leftOn = false;
+    let rightOn = false;
+
+    // MODE A: REPLAY (Use recorded state)
+    if (overrideLeft !== null && overrideRight !== null) {
+        leftOn = overrideLeft;
+        rightOn = overrideRight;
+    } 
+    // MODE B: LIVE GAME (Use timer logic)
+    else {
+        const isGoalMoment = (goalResetTimer !== null && goalResetTimer > performance.now());
+        if (isGoalMoment) {
+            if (team0AttacksRight) {
+                leftOn = (lastGoalTeam === 1);
+                rightOn = (lastGoalTeam === 0);
+            } else {
+                leftOn = (lastGoalTeam === 0);
+                rightOn = (lastGoalTeam === 1);
+            }
+        }
+    }
+
+    // --- LEFT LIGHT ---
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(leftX, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = leftOn ? onColor : offColor;
+    if (leftOn) { ctx.shadowColor = onColor; ctx.shadowBlur = 50; }
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "#666";
+    ctx.lineWidth = 4;
+    ctx.stroke();
+    ctx.restore();
+
+    // --- RIGHT LIGHT ---
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(rightX, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = rightOn ? onColor : offColor;
+    if (rightOn) { ctx.shadowColor = onColor; ctx.shadowBlur = 50; }
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "#666";
+    ctx.lineWidth = 4;
+    ctx.stroke();
+    ctx.restore();
+}
+
+
+
+
+
+
+function drawPeriodOverlay() {
+    if (!periodMessage || performance.now() > periodMessageUntil) return;
+
+    ctx.save();
+    ctx.fillStyle = "rgba(0,0,0,0.25)";
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 48px Arial";
+    ctx.fillText(periodMessage, W/2, H/2);
+
+    ctx.restore();
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function renderTournamentStatus() {
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, W, H);
+    
+    // =========================================================
+    // MODE A: TRAINING GAUNTLET VIEW (With SOG Columns)
+    // =========================================================
+    if (typeof Tournament !== 'undefined' && Tournament.isTrainingEpisode) {
+        
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#fff";
+        ctx.font = "bold 24px Arial";
+        ctx.fillText("🏋️ TRAINING CAMP REPORT", W/2, 40);
+
+        // Header Info
+        ctx.font = "16px Arial";
+        ctx.fillStyle = "#aaa";
+        if (typeof AICoach !== 'undefined') {
+            const epTxt = (AICoach.maxEpisodes > 99999) ? "∞" : AICoach.maxEpisodes;
+            ctx.fillText(`Episode: ${AICoach.currentEpisode} / ${epTxt}`, W/2, 65);
+            ctx.font = "italic 14px Arial";
+            ctx.fillText(AICoach.mutationDetails, W/2, 85);
+        }
+
+        const startY = 120;
+        const rowH = 35;
+        // Columns: MATCHUP, GP, W, L, OTL, GF, GA, SOGF, SOGA, PTS
+        const colX = [150, 320, 380, 440, 500, 580, 640, 720, 780, 880];
+
+        // Headers
+        ctx.textAlign = "right";
+        ctx.fillStyle = "#888";
+        ctx.font = "bold 14px Monospace";
+        ctx.fillText("MATCHUP", colX[0], startY);
+        
+        ctx.textAlign = "center";
+        ctx.fillText("GP", colX[1], startY);
+        ctx.fillText("W", colX[2], startY);
+        ctx.fillText("L", colX[3], startY);
+        ctx.fillText("OTL", colX[4], startY);
+        ctx.fillText("GF", colX[5], startY);
+        ctx.fillText("GA", colX[6], startY);
+        ctx.fillStyle = "#aaa";
+        ctx.fillText("SOGF", colX[7], startY);
+        ctx.fillText("SOGA", colX[8], startY);
+        ctx.fillStyle = "#fff";
+        ctx.fillText("PTS", colX[9], startY);
+
+        ctx.font = "16px Monospace";
+
+        // 1. Draw Individual Opponent Rows
+        const oppKeys = Object.keys(Tournament.matchupStats);
+        let y = startY + 30;
+
+        oppKeys.forEach((oppId, i) => {
+            const s = Tournament.matchupStats[oppId];
+            
+            ctx.fillStyle = "#ccc";
+            ctx.textAlign = "right";
+            ctx.fillText("vs " + s.code, colX[0], y);
+
+            ctx.textAlign = "center";
+            ctx.fillText(s.GP, colX[1], y);
+            ctx.fillStyle = "#4f4"; ctx.fillText(s.W, colX[2], y);
+            ctx.fillStyle = "#f44"; ctx.fillText(s.L, colX[3], y);
+            ctx.fillStyle = "#ccc"; ctx.fillText(s.OTL, colX[4], y);
+            
+            ctx.fillStyle = "#888";
+            ctx.fillText(s.GF, colX[5], y);
+            ctx.fillText(s.GA, colX[6], y);
+            
+            // Draw SOG Averages
+            const avgSOGF = s.GP > 0 ? (s.SOGF / s.GP).toFixed(1) : "0.0";
+            const avgSOGA = s.GP > 0 ? (s.SOGA / s.GP).toFixed(1) : "0.0";
+            ctx.fillStyle = "#aaa";
+            ctx.fillText(avgSOGF, colX[7], y);
+            ctx.fillText(avgSOGA, colX[8], y);
+            
+            ctx.fillStyle = "#fff";
+            ctx.font = "bold 16px Monospace";
+            ctx.fillText(s.Pts, colX[9], y);
+            ctx.font = "16px Monospace";
+
+            y += rowH;
+        });
+
+        // Divider
+        y += 5;
+        ctx.strokeStyle = "#444";
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(50, y); ctx.lineTo(950, y); ctx.stroke();
+        y += 30;
+
+        // 2. TOTALS ROW (Blue)
+        const total = Tournament.standings["TRAINEE"];
+        if (total) {
+            ctx.fillStyle = "#7aa2f7"; 
+            ctx.textAlign = "right";
+            ctx.font = "bold 18px Monospace";
+            ctx.fillText("CURRENT TOTAL", colX[0], y);
+
+            ctx.textAlign = "center";
+            ctx.fillText(total.GP, colX[1], y);
+            ctx.fillText(total.W, colX[2], y);
+            ctx.fillText(total.L, colX[3], y);
+            ctx.fillText(total.OTL, colX[4], y);
+            ctx.fillText(total.GF, colX[5], y);
+            ctx.fillText(total.GA, colX[6], y);
+            
+            const totSOGF = total.GP > 0 ? (total.totalSOGF / total.GP).toFixed(1) : "0.0";
+            const totSOGA = total.GP > 0 ? (total.totalSOGA / total.GP).toFixed(1) : "0.0";
+            ctx.fillStyle = "#aaa";
+            ctx.fillText(totSOGF, colX[7], y);
+            ctx.fillText(totSOGA, colX[8], y);
+            
+            ctx.fillStyle = "#fff";
+            ctx.fillText(total.Pts, colX[9], y);
+            
+            y += rowH + 10;
+        }
+
+        // 3. BEST RECORD ROW (Gold)
+        if (typeof AICoach !== 'undefined' && AICoach.bestStats) {
+            const bs = AICoach.bestStats;
+            
+            // Gold Box
+            ctx.strokeStyle = "#FFD700";
+            ctx.lineWidth = 2;
+            ctx.strokeRect(colX[0] - 140, y - 22, 800, 30);
+
+            ctx.fillStyle = "#FFD700"; // Gold Text
+            ctx.textAlign = "right"; 
+            ctx.fillText("BEST SO FAR", colX[0], y);
+
+            ctx.textAlign = "center";
+            ctx.fillText(bs.GP, colX[1], y);
+            ctx.fillText(bs.W, colX[2], y);
+            ctx.fillText(bs.L, colX[3], y);
+            ctx.fillText(bs.OTL, colX[4], y);
+            ctx.fillText(bs.GF, colX[5], y);
+            ctx.fillText(bs.GA, colX[6], y);
+            
+            const bSOGF = bs.GP > 0 ? (bs.totalSOGF / bs.GP).toFixed(1) : "-";
+            const bSOGA = bs.GP > 0 ? (bs.totalSOGA / bs.GP).toFixed(1) : "-";
+            ctx.fillText(bSOGF, colX[7], y);
+            ctx.fillText(bSOGA, colX[8], y);
+            
+            ctx.font = "bold 18px Monospace";
+            ctx.fillText(bs.Pts, colX[9], y);
+        }
+
+        // Stop Warning Overlay
+        if (typeof AICoach !== 'undefined' && AICoach.stopRequested) {
+            ctx.fillStyle = "rgba(0,0,0,0.8)";
+            ctx.fillRect(W/2 - 200, H - 120, 400, 50);
+            ctx.strokeStyle = "#f7768e"; ctx.lineWidth = 2; ctx.strokeRect(W/2 - 200, H - 120, 400, 50);
+            ctx.fillStyle = "#f7768e"; ctx.textAlign = "center"; ctx.font = "bold 18px Arial";
+            ctx.fillText("🛑 STOP REQUESTED... Finishing Episode", W/2, H - 90);
+        } else if (typeof AICoach !== 'undefined' && AICoach.active) {
+            ctx.fillStyle = "#666"; ctx.textAlign = "center"; ctx.font = "12px Arial";
+            ctx.fillText("Press 'Q' to Save & Quit", W/2, H - 70);
+        }
+    }
+    // =========================================================
+    // MODE B: STANDARD SEASON VIEW (Standard Tournament)
+    // =========================================================
+    else {
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#fff";
+        ctx.font = "bold 24px Arial";
+        
+        // DYNAMIC TITLE
+        const title = (Tournament.active) ? "🏆 LIVE STANDINGS" : "🏆 FINAL STANDINGS";
+        ctx.fillText(title, W/2, 40);
+
+        const sorted = Object.values(Tournament.standings).sort((a,b) => {
+            if (b.Pts !== a.Pts) return b.Pts - a.Pts;
+            if (b.W !== a.W) return b.W - a.W;
+            return (b.GF - b.GA) - (a.GF - a.GA);
+        });
+
+        const startY = 80;
+        const rowH = 22;
+        const colX = [80, 140, 340, 390, 440, 490, 540, 590, 660, 720, 770, 840, 920]; 
+        
+        ctx.textAlign = "left";
+        ctx.font = "bold 13px Monospace";
+        ctx.fillStyle = "#888"; 
+        
+        ctx.fillText("RK", colX[0], startY);
+        ctx.fillText("TEAM", colX[1], startY);
+        ctx.fillText("GP", colX[2], startY);
+        ctx.fillText("W", colX[3], startY);
+        ctx.fillText("L", colX[4], startY);
+        ctx.fillText("OTL", colX[5], startY);
+        ctx.fillText("SOW", colX[6], startY);
+        ctx.fillText("SOL", colX[7], startY);
+        
+        ctx.fillStyle = "#fff"; ctx.fillText("PTS", colX[8], startY);
+        ctx.fillStyle = "#888"; ctx.fillText("GF", colX[9], startY); ctx.fillText("GA", colX[10], startY);
+        ctx.fillStyle = "#aaa"; ctx.fillText("SOGF", colX[11], startY); ctx.fillText("SOGA", colX[12], startY);
+
+        ctx.font = "13px Monospace"; 
+        
+        sorted.forEach((t, i) => {
+            const y = startY + 25 + (i * rowH);
+            if (y > H - 100) return; 
+
+            if (i % 2 === 0) {
+                ctx.fillStyle = "rgba(255, 255, 255, 0.05)";
+                ctx.fillRect(60, y - 16, 900, rowH);
+            }
+
+            ctx.fillStyle = "#ccc"; 
+            ctx.fillText((i + 1) + ".", colX[0], y);
+            ctx.fillText(t.name.substring(0, 20), colX[1], y);
+            ctx.fillText(t.GP, colX[2], y);
+            ctx.fillText(t.W, colX[3], y);
+            ctx.fillText(t.L, colX[4], y);
+            ctx.fillText(t.OTL, colX[5], y);
+            ctx.fillText(t.SOW, colX[6], y);
+            ctx.fillText(t.SOL, colX[7], y);
+            ctx.fillStyle = "#fff"; ctx.fillText(t.Pts, colX[8], y);
+            ctx.fillStyle = "#888"; ctx.fillText(t.GF, colX[9], y); ctx.fillText(t.GA, colX[10], y);
+
+            // FIX IS HERE: DEFINING THE VARIABLES BEFORE USING THEM
+            const avgSOGF = (t.GP > 0) ? (t.totalSOGF / t.GP).toFixed(1) : "0.0";
+            const avgSOGA = (t.GP > 0) ? (t.totalSOGA / t.GP).toFixed(1) : "0.0";
+
+            ctx.fillStyle = "#aaa"; ctx.fillText(avgSOGF, colX[11], y); ctx.fillText(avgSOGA, colX[12], y);
+        });
+
+        // EXIT INSTRUCTION
+        if (!Tournament.active) {
+            ctx.fillStyle = "#666";
+            ctx.textAlign = "center";
+            ctx.font = "14px Arial";
+            ctx.fillText("Press ESC to Return to Menu", W/2, H - 30);
+        }
+    }
+
+    // 5. FOOTER (Active Match Score) - Only show if tournament is ACTIVE
+    if (Tournament.active && Tournament.currentMatchIndex < Tournament.matches.length) {
+        const idx = Tournament.currentMatchIndex;
+        const total = Tournament.matches.length;
+        const m = Tournament.matches[idx];
+        const hName = Strategies[m.home].code;
+        const aName = Strategies[m.away].code;
+        
+        // Safe fallback for SOG display
+        const sog0 = Tournament.standings[m.home] ? (Tournament.standings[m.home].totalSOGF || 0) : 0; 
+        
+        ctx.fillStyle = "#111";
+        ctx.fillRect(0, H - 60, W, 60);
+        ctx.strokeStyle = "#444"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, H-60); ctx.lineTo(W, H-60); ctx.stroke();
+
+        const footerY = H - 25;
+        ctx.textAlign = "left"; ctx.font = "14px Arial"; ctx.fillStyle = "#666";
+        ctx.fillText(`MATCH ${idx+1} / ${total}`, 30, footerY);
+
+        ctx.textAlign = "center"; ctx.font = "bold 24px Arial"; ctx.fillStyle = "#fff";
+        ctx.fillText(`${hName}  ${scoreTeam0} - ${scoreTeam1}  ${aName}`, W/2, footerY + 8);
+        
+        ctx.textAlign = "right"; ctx.font = "14px Monospace"; ctx.fillStyle = "#888";
+        const pTxt = currentPeriod > 3 ? "OT" : "P" + currentPeriod;
+        ctx.fillText(`${pTxt} | ${Math.floor(timeRemaining)}s`, W - 30, footerY);
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function drawTournamentResults() {
+    // Re-use logic from Live Status but center it for final screen
+    renderTournamentStatus();
+    
+    ctx.save();
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 16px Arial";
+    ctx.fillText("TOURNAMENT COMPLETE - Press ESC to Return", W/2, H - 85); // Above footer
+    ctx.restore();
+}
+
+
+
+function drawDebugRoles(ctx) {
+    ctx.save();
+    ctx.font = "bold 10px Arial"; 
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "rgba(100, 100, 100, 0.5)"; 
+
+    for (let p of players) {
+        // DEBUG: Uncomment this once to see what your goalie is actually called in the console
+        // console.log("Player ID:", p.id, "Role:", p.role);
+
+        // BROADER EXCLUSION CHECK
+        // Checks for "G", "GK", "Goalie", "g", "gk"
+        if (["G", "GK", "Goalie", "g", "gk"].includes(p.role)) continue;
+
+        let label = "?";
+        
+        if (p.role === "C") {
+            label = "C"; 
+        } else if (["A", "D", "LD", "RD"].includes(p.role)) {
+            label = "D"; 
+        } else {
+            // This is where the Goalie was falling through!
+            label = "W"; 
+        }
+
+        ctx.fillText(label, p.x, p.y - 10);
+    }
+    ctx.restore();
+}
+
+
+
+function drawDebugBackdoorTargets(ctx) {
+    if (typeof puck === 'undefined') return;
+
+    ctx.save();
+    ctx.lineWidth = 3;
+    
+    // Helper to calc target from relative math
+    function getDebugBox(goalAbsX) {
+        const puckRelY = puck.y - RY;
+        const goalRelX = goalAbsX - RX;
+        const dir = Math.sign(goalRelX);
+        
+        const targetRelX = goalRelX - (dir * BACKDOOR_DEPTH);
+        const targetRelY = (puckRelY < 0) ? BACKDOOR_WIDTH : -BACKDOOR_WIDTH;
+        
+        return { x: targetRelX + RX, y: targetRelY + RY };
+    }
+
+    // --- TEAM 0 (Attacks Goal 2) ---
+    const t0 = getDebugBox(goal2);
+    ctx.strokeStyle = "#00ffff"; // Cyan
+    ctx.strokeRect(t0.x - 10, t0.y - 10, 20, 20);
+    
+    // --- TEAM 1 (Attacks Goal 1) ---
+    const t1 = getDebugBox(goal1);
+    ctx.strokeStyle = "#ff00ff"; // Magenta
+    ctx.strokeRect(t1.x - 10, t1.y - 10, 20, 20);
+
+    ctx.restore();
+}
+
+
+
+function drawBT8Debug() {
+    // 1. Safety Check
+    if (!window.BT8_DEBUG) return; 
+
+    // Global Toggle Check
+    if (typeof SHOW_DEBUG_OVERLAY !== 'undefined' && !SHOW_DEBUG_OVERLAY) return;
+
+    const data = window.BT8_DEBUG;
+    const z = data.zone;
+    const ar = data.attackingRight;
+
+    ctx.save();
+    
+    // -----------------------------------------
+    // A. DRAW ZONES (Green Rectangles)
+    // -----------------------------------------
+    let box = { x:0, y:0, w:0, h:0 };
+    
+    // Define Base Rects (Relative to Own Net 0 -> Enemy Net 1000)
+    // D-ZONE (0 - 390)
+    if (z===0) { box = {x:0, y:0, w:100, h:600}; } // Behind Net
+    else if (z===1) { box = {x:100, y:0, w:290, h:260}; } // Top (Width 290)
+    else if (z===2) { box = {x:100, y:260, w:290, h:120}; } // Slot
+    else if (z===3) { box = {x:100, y:380, w:290, h:220}; } // Bot
+
+    // NEUTRAL ZONE (390 - 610) -> Width 220
+    else if (z===4) { box = {x:390, y:0, w:220, h:260}; } 
+    else if (z===5) { box = {x:390, y:260, w:220, h:120}; } 
+    else if (z===6) { box = {x:390, y:380, w:220, h:220}; } 
+
+    // OFFENSIVE ZONE (610 - 1000)
+    else if (z===7) { box = {x:610, y:0, w:290, h:260}; } // Top (Width 290)
+    else if (z===8) { box = {x:610, y:260, w:290, h:120}; } // Slot
+    else if (z===9) { box = {x:610, y:380, w:290, h:220}; } // Bot
+    else if (z===10){ box = {x:900, y:0, w:100, h:600}; } // Deep
+
+    // Flip X if attacking Left
+    let drawX = ar ? box.x : (1000 - box.x - box.w);
+    let drawY = box.y;
+    
+    ctx.fillStyle = "rgba(0, 255, 0, 0.15)";
+    ctx.fillRect(drawX, drawY, box.w, box.h);
+    
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 20px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText("Z"+z, drawX + box.w/2, drawY + box.h/2);
+
+    // -----------------------------------------
+    // B. DRAW CHAIRS (Yellow Dots)
+    // -----------------------------------------
+    if (data.chairs) {
+        ctx.lineWidth = 2;
+        data.chairs.forEach((c, i) => {
+            ctx.beginPath();
+            ctx.arc(c.x, c.y, 8, 0, Math.PI*2);
+            ctx.fillStyle = "yellow";
+            ctx.fill();
+            ctx.strokeStyle = "black";
+            ctx.stroke();
+            
+            ctx.fillStyle = "white";
+            ctx.font = "bold 12px Arial";
+            ctx.fillText("C"+(i+1), c.x, c.y - 12);
+        });
+    }
+
+    // -----------------------------------------
+    // C. DRAW PASSING STATS (Top Right)
+    // -----------------------------------------
+    if (window.BT8_STATS) {
+        const s = window.BT8_STATS;
+        const pct = s.attempts > 0 ? Math.round((s.completions / s.attempts) * 100) : 0;
+        const text = `PASSING: ${s.completions} / ${s.attempts} (${pct}%)`;
+        
+        ctx.font = "bold 16px Monospace";
+        
+        // Calculate box size based on text width
+        const textMetrics = ctx.measureText(text);
+        const boxW = textMetrics.width + 30;
+        const boxH = 34;
+        
+        const boxX = 1000 - boxW - 20; 
+        const boxY = 20;
+
+        ctx.fillStyle = "rgba(0, 0, 0, 0.85)";
+        ctx.fillRect(boxX, boxY, boxW, boxH);
+        ctx.strokeStyle = "#00ff00";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(boxX, boxY, boxW, boxH);
+
+        ctx.fillStyle = "#00ff00";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(text, boxX + boxW/2, boxY + boxH/2);
+    }
+
+    ctx.restore();
+}
+
+
+
+
+
+// =========================================================
+// RENDERING FUNCTION (Phase 2)
+// =========================================================
+function renderFrame() {
+
+    if (isReplaying) {
+        renderReplay(ctx); // <-- HIJACK THE RENDERER
+        return;
+    }
+
+    if (!TRAIN_RENDER) return;
+
+    // 🛑 NEW: Stop rendering if the menu is open (Part D fix)
+    if (gameState === 'menu') return; 
+    // -------------------------------------------------------
+    
+    // -------------------------------------------------------
+    // BASE DRAW LAYER
+    // -------------------------------------------------------
+    ctx.drawImage(offscreenCanvas, 0, 0);
+    
+    drawGoalLights();
+    
+    // debugDrawGoalBlocks(ctx);
+
+    // drawSolidGoals();
+    
+    puck.draw();
+
+    for (const p of players) {
+        drawPlayer(p);
+    }
+
+
+
+    // Scoreboard
+    // drawScoreboard();
+
+
+    // Draw New Broadcast Scoreboard
+    drawBroadcastScoreboard();
+
+
+  
+    // 1. DELAYED OFFSIDE (Yellow - Existing)
+    if (offsideState.active) {
+        ctx.save();
+        ctx.fillStyle = "yellow";
+        ctx.font = "bold 20px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText("⚠️ DELAYED OFFSIDE", W/2, 100);
+        ctx.restore();
+    }
+    // 2. PLAYER CAMPING WARNING (Orange - New)
+    // Only show if we aren't already in a full Delayed Offside
+    else { 
+        const campingTeam = checkPlayerOffsidePosition();
+        
+        if (campingTeam !== null) {
+            ctx.save();
+            ctx.fillStyle = "orange";
+            ctx.font = "bold 20px Arial";
+            ctx.textAlign = "center";
+            ctx.fillText("⚠️ PLAYER OFFSIDE", W/2, 100);
+            ctx.restore();
+        }
+    }
+    
+
+
+    // -------------------------------------------------------------------
+    // WHISTLE OVERLAY (NEW)
+    // -------------------------------------------------------------------
+    if (whistleEndTimer && performance.now() < whistleEndTimer) {
+        drawWhistleOverlay();
+    }
+    
+
+    
+    //drawBT8Debug();
+    //drawDebugRoles(ctx);
+    //drawDebugBackdoorTargets(ctx);
+    
+    drawPeriodOverlay();
+
+
+    // *** NEW: DRAW PRACTICE UI ***
+    if (typeof Practice !== 'undefined') Practice.drawUI();
+    
+}
+
+
+
+
+
+
+
+function drawSolidGoals() {
+    ctx.fillStyle = "#888"; // Grey posts
+    for (const wall of GOAL_WALLS) {
+        ctx.fillRect(wall.x, wall.y, wall.w, wall.h);
+        
+        // Optional: Draw outline
+        ctx.strokeStyle = "#555";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(wall.x, wall.y, wall.w, wall.h);
+    }
+}
+
+
+
+// =========================================================
+// DRAW
+// =========================================================
+function drawPlayer(p) {
+    ctx.save();
+    
+    // 1. Move to Center
+    ctx.translate(p.x, p.y);
+
+    // 2. Animation
+    let rotationOffset = 0;
+    const speed = Math.hypot(p.vx, p.vy);
+    if (p.isAccelerating && speed > 0.5) {
+        p.strideTick += 0.12 + (speed * 0.08); 
+        rotationOffset = Math.sin(p.strideTick) * (0.088 * ((speed - 0.5) / 2.0));
+    } else {
+        p.strideTick = 0;
+    }
+
+    // 3. Apply Rotation
+    ctx.rotate(p.angle + rotationOffset);
+
+    // 4. Colors
+    const half = p.size / 2;
+    const hasPuck = (puck.ownerId === p.id);
+    let mainColor, stripeColor;
+
+    if (DEBUG_ROLES && p.team === 0) {
+        if (p.role === "A" || p.role === "LD") mainColor = "#6529ff"; 
+        else if (p.role === "B") mainColor = "#44ff44"; 
+        else mainColor = "#4488ff"; 
+        stripeColor = "#ffffff";
+    } else {
+        const baseMain = (p.team === 0) ? TEAM0_COLOR : TEAM1_COLOR;
+        const baseSec  = (p.team === 0) ? TEAM0_COLOR_HAS_PUCK : TEAM1_COLOR_HAS_PUCK;
+        mainColor = baseMain;
+        stripeColor = hasPuck ? baseMain : baseSec;
+    }
+
+    // 5. Draw
+    ctx.fillStyle = mainColor;
+    ctx.fillRect(-half, -half, p.size, p.size);
+
+    const stripeW = p.size * 0.12;
+    ctx.fillStyle = stripeColor;
+    ctx.fillRect(-stripeW / 2, -half, stripeW, p.size);
+
+    const head = p.size * 0.4;
+    ctx.fillStyle = "#111";
+    ctx.fillRect(half - head/2, -head/2, head, head);
+    
+    if (p.isHuman) {
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath(); ctx.arc(half + head * 0.1, 0, 0.8, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // *** NEW: MIND READING OVERLAY ***
+    // Only show if Debug Overlay is ON and player has a thought
+    if (SHOW_DEBUG_OVERLAY && p.debugText && p.team === 0) {
+        ctx.rotate(-(p.angle + rotationOffset)); // Undo rotation so text is flat
+        
+        ctx.fillStyle = "#00ffff"; // Cyan
+        ctx.font = "bold 10px Arial";
+        ctx.textAlign = "center";
+        
+        // Draw background for readability
+        const w = ctx.measureText(p.debugText).width + 4;
+        ctx.fillStyle = "rgba(0,0,0,0.7)";
+        ctx.fillRect(-w/2, -25, w, 12);
+        
+        ctx.fillStyle = "#00ffff";
+        ctx.fillText(p.debugText, 0, -16);
+    }
+
+    ctx.restore();
+}
+
+
+
+
+
+// =========================================================
+// GOAL-BASED EPISODE ENDING (Updated for AI Coach)
+// =========================================================
+function trainingAutoEnd() {
+
+    // Prevent multiple endings inside same training tick
+    if (!TRAIN_EPISODE_ACTIVE) return;
+
+    // Episode ends after N total goals
+    if (TRAIN_TOTAL_GOALS >= TRAIN_GOALS_PER_EPISODE) {
+
+        TRAIN_EPISODE_ACTIVE = false;  // <--- BLOCK re-entry
+
+        // console.log("=== EPISODE COMPLETE ===");
+        // console.log("Score: " + scoreTeam0 + " - " + scoreTeam1);
+
+        // --- AI COACH HOOK ---
+        if (typeof AICoach !== 'undefined' && AICoach.active) {
+            // Report results to the coach
+            // We pass the final score. (Shots are 0 for now unless you want to track them globally)
+            AICoach.reportMatchResult(scoreTeam0, scoreTeam1, 0, 0);
+            return; // Stop here, the Coach handles the reset
+        }
+        // ---------------------
+
+        TRAIN_EPISODES++;
+
+        // Reset counters
+        TRAIN_STEPS = 0;
+        TRAIN_TOTAL_GOALS = 0;
+        TRAIN_POS_T0 = 0;
+        TRAIN_POS_T1 = 0;
+        TRAIN_POS_NONE = 0;
+
+        // Reset rink & players
+        resetTrainingEpisode();
+    }
+}
+
+
+
+
+
+
+function serializeBrain(brain) {
+    return {
+        inputSize: brain.inputSize,
+        hiddenSize: brain.hiddenSize,
+        outputSize: brain.outputSize,
+        w1: brain.w1,
+        b1: brain.b1,
+        w2: brain.w2,
+        b2: brain.b2
+    };
+}
+
+function deserializeBrain(data) {
+    return {
+        inputSize: data.inputSize,
+        hiddenSize: data.hiddenSize,
+        outputSize: data.outputSize,
+        w1: data.w1,
+        b1: data.b1,
+        w2: data.w2,
+        b2: data.b2
+    };
+}
+
+function saveAI() {
+    const brains = players.filter(p => p.team === 0 && p.brain)
+        .map(p => serializeBrain(p.brain));
+    document.getElementById("aiStorage").value = JSON.stringify(brains, null, 2);
+}
+
+function loadAI() {
+    const raw = document.getElementById("aiStorage").value;
+    try {
+        const brains = JSON.parse(raw);
+        const team0 = players.filter(p => p.team === 0 && p.brain);
+        for (let i = 0; i < brains.length; i++) {
+            if (team0[i]) {
+                team0[i].brain = deserializeBrain(brains[i]);
+            }
+        }
+        alert("Brains loaded!");
+    } catch (e) {
+        alert("Failed to load: " + e.message);
+    }
+}
+
+
+
+
+
+
+
+
+// =========================================================
+// MAIN LOOP
+// =========================================================
+function loop(now) {
+    frameCount++;
+    if (now - lastTime >= 1000) {
+        fps = frameCount;
+        frameCount = 0;
+        lastTime = now;
+    }
+
+    // if (gameState === 'tournament') return; 
+
+    if (gameState === 'tournament') {
+        if (typeof renderTournamentStatus === 'function') renderTournamentStatus();
+        requestAnimationFrame(loop);
+        return;
+    }
+
+
+    if (gameState === 'tournament_over') {
+        if (typeof drawTournamentResults === 'function') drawTournamentResults();
+        requestAnimationFrame(loop);
+        return;
+    }
+
+    // --- PAUSE / REPLAY RENDER ---
+    if (typeof isPaused !== 'undefined' && isPaused) {
+        renderFrame();
+        lastTime = now;
+        lastGameTimeUpdate = now;
+        if (goalResetTimer) goalResetTimer += 16;
+        if (whistleEndTimer) whistleEndTimer += 16;
+        if (faceoffPauseUntil) faceoffPauseUntil += 16;
+        requestAnimationFrame(loop);
+        return;
+    }
+
+    if (gameState === 'menu') { drawMenu(); requestAnimationFrame(loop); return; }
+    if (gameState === 'options') { drawOptionsMenu(); requestAnimationFrame(loop); return; }
+    if (gameState === 'gameover') { return handleGameOver(now); }
+    if (gameState === 'intermission') { renderFrame(); requestAnimationFrame(loop); return; }
+    if (gameState === 'training_menu') { drawTrainingMenu(); requestAnimationFrame(loop); return; }
+
+
+    if (gameState === "training_intermission") {
+        // Clear background
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, 0, W, H);
+        
+        // Draw the Tournament Table (so we can see stats)
+        if (typeof renderTournamentStatus === 'function') renderTournamentStatus();
+
+        // Draw the Overlay
+        const now = performance.now();
+        ctx.save();
+        ctx.fillStyle = "rgba(0,0,0,0.85)";
+        ctx.fillRect(0, H-120, W, 120);
+        
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#fff";
+        ctx.font = "bold 24px Arial";
+        ctx.fillText("🧠 AI COACH THINKING...", W/2, H-80);
+        
+        ctx.fillStyle = "#7aa2f7";
+        ctx.font = "16px Monospace";
+        ctx.fillText(AICoach.mutationDetails || "Analyzing...", W/2, H-50);
+        
+        const secondsLeft = Math.ceil((trainingIntermissionTimer - now) / 1000);
+        ctx.fillStyle = "#aaa";
+        ctx.font = "12px Arial";
+        ctx.fillText(`Next Episode in ${secondsLeft}s`, W/2, H-20);
+        ctx.restore();
+
+        // Logic to proceed
+        if (now > trainingIntermissionTimer) {
+            AICoach.startEpisode(); 
+        }
+        requestAnimationFrame(loop);
+        return;
+    }
+
+
+
+    // =====================================================
+    // GAME FLOW PAUSED (Goals, Whistles, Celebrations)
+    // =====================================================
+    const isGameFlowPaused = isResetActive() || performance.now() < faceoffPauseUntil;
+
+    if (isGameFlowPaused) {
+        updateClock(now);
+        
+        // 1. CELEBRATION ANIMATION (Live)
+        if (isGoalCelebrationActive()) {
+            puck.update();
+            collideCircleWithRink(puck, puck.r, 0.8);
+            for (const p of players) {
+                updatePlayer(p);
+                enforcePlayerWalls(p);
+            }
+            resolvePlayerCollisions();
+
+            if (goalResetTimer - now > 4000) {
+                if (typeof captureReplayFrame === 'function') captureReplayFrame();
+            }
+        }
+        
+        // 2. CHECK: Whistle Timer Expired
+        if (whistleEndTimer && now >= whistleEndTimer) {
+            whistleEndTimer = null;
+            doFaceoffReset();
+        } 
+        
+        // 3. CHECK: Goal Celebration Expired
+        else if (goalResetTimer && now >= goalResetTimer) {
+            goalResetTimer = null; 
+
+            if (isSuddenDeathGoal) {
+                if (lastGoalTeam === 0) scoreTeam0++;
+                if (lastGoalTeam === 1) scoreTeam1++;
+                gameState = "gameover"; 
+                isSuddenDeathGoal = false; 
+            } else {
+                if (typeof startInstantReplay === 'function') {
+                    startInstantReplay(() => { doGoalReset(); });
+                } else {
+                    doGoalReset();
+                }
+            }
+        }
+
+        if (!TRAINING_MODE || WATCH_MODE) renderFrame();
+        requestAnimationFrame(loop);
+        return;
+    }
+
+    // =====================================================
+    // ACTIVE GAMEPLAY
+    // =====================================================
+    
+    // *** FIX: DEFINE THE VARIABLE HERE ***
+    const safeReplayCheck = (typeof isReplaying !== 'undefined') ? !isReplaying : true;
+
+    if (!TRAINING_MODE && safeReplayCheck) {
+        puck.update();
+        checkOffsides();
+        checkDeadPuck(); 
+        resolveGoalCollisions(puck);
+        checkGoalieHarassment();
+        checkNetPinning(); 
+
+        if (puckEscapedRink()) handlePuckEscape();
+        if (puckStealCooldown > 0) puckStealCooldown--;
+        
+        // 1. CHECK VALID GOAL FIRST
+        checkGoal(); 
+        
+        // 2. CHECK STUCK PUCK SECOND
+        if (detectPuckStuckInNet()) {
+            whistle("Net Mesh Stoppage"); 
+            if (!TRAINING_MODE || WATCH_MODE) renderFrame();
+            requestAnimationFrame(loop);
+            return; 
+        }
+        
+        for (const p of players) {
+            updatePlayer(p);
+            resolveGoalCollisions(p);
+            blockPlayerFromGoal(p);  
+            enforcePlayerWalls(p);
+        }
+
+        resolvePlayerCollisions();
+
+        if (typeof captureReplayFrame === 'function') captureReplayFrame();
+    }
+
+    if (!TRAINING_MODE || WATCH_MODE) renderFrame();
+
+    updateClock(now);
+    requestAnimationFrame(loop);
+}
+
+
+
+
+
+
+
+
+
+// =========================================================
+// FAST TRAINING LOOP (Phase 4.5)
+// =========================================================
+function trainingLoop() {
+    if (!TRAINING_MODE) return;
+
+    TRAIN_EPISODE_ACTIVE = true;
+
+    // Adjust speed depending on watch mode
+    const STEPS_PER_TICK = WATCH_MODE ? 1 : 100;
+    
+// --- PAUSE CHECK (Training mode) ---
+if (isResetActive()) {
+    const now = performance.now();
+    
+    // 🏒 CELEBRATION: Animate players (even in fast training)
+    if (isGoalCelebrationActive()) {
+        for (const p of players) {
+            updatePlayer(p);
+            enforcePlayerWalls(p);
+        }
+        resolvePlayerCollisions();
+    }
+    
+    // Check 1: Whistle expired
+    if (whistleEndTimer && now >= whistleEndTimer) {
+        whistleEndTimer = null; // <-- ADD THIS LINE
+        doFaceoffReset();
+    } 
+    // Check 2: Goal expired
+    else if (goalResetTimer && now >= goalResetTimer) {
+        doGoalReset(); 
+    }
+    
+    // Wait/render, no physics
+    trainingTimeoutId = setTimeout(trainingLoop, WATCH_MODE ? 16 : 0);
+    return;
+}
+    // ------------------------------------
+
+
+    for (let i = 0; i < STEPS_PER_TICK; i++) {
+        puck.update();
+        checkOffsides();
+        checkGoalieHarassment();
+        checkNetPinning(); 
+
+        // *** NEW: SOLID GOAL COLLISION ***
+        resolveGoalCollisions(puck);
+
+        if (puckEscapedRink()) handlePuckEscape();
+
+        trainingTick(performance.now());
+        trainingAutoEnd();
+
+        if (puckStealCooldown > 0) puckStealCooldown--;
+
+        checkGoal();
+        
+        // If a whistle/goal was triggered during this tick, break the loop early
+        if (isResetActive()) break; 
+
+        for (const p of players) {
+            updatePlayer(p);
+            enforcePlayerWalls(p);
+            // keepSkatersOutOfNet(p);
+        }
+
+        resolvePlayerCollisions();
+    }
+
+    ticksSinceLastGoal++;
+    if (ticksSinceLastGoal > FAILSAFE_MAX_TICKS) {
+        // console.warn("⚠️ Failsafe triggered — resetting episode.");
+        resetAfterGoal(-1);  // Use -1 to signify no team scored
+        ticksSinceLastGoal = 0;
+    }
+
+    // Schedule next run, with delay if WATCH_MODE is on
+    if (gameState !== 'menu') {
+        trainingTimeoutId = setTimeout(trainingLoop, WATCH_MODE ? 16 : 0);
+    } else {
+        trainingTimeoutId = null;
+    }
+}
+
+
+rinkImg.onload = () => { // <--- CORRECTED
+    offctx.drawImage(rinkImg, 0, 0, W, H);
+    // start render loop (60 fps max)
+    requestAnimationFrame(loop);
+};
+
+
+
+// =========================================================
+// TOUCH INPUT HANDLER (MOBILE ONLY)
+// =========================================================
+
+// 1. Set the trap (Event Listener)
+// This tells the browser: "When a touch happens, run handleInput"
+canvas.addEventListener('touchstart', handleInput, {passive: false});
+
+// 2. Define what happens when the trap is sprung
+function handleInput(e) {
+    if (e.type !== 'touchstart') return;
+    e.preventDefault(); // Stop scrolling
+
+    // MENU: Start Game
+    if (gameState === 'menu') {
+        activateMenuItem("New Game");
+        return;
+    }
+
+    // GAME OVER: Reset
+    if (gameState === 'gameover') {
+        gameState = "menu";
+        return;
+    }
+
+    // OPTIONS: Back
+    if (gameState === 'options') {
+        gameState = "menu";
+        menuIndex = 0;
+        return;
+    }
+}
+
+
+
+
+
+// =========================================================
+// PRACTICE SANDBOX MODE (Updated with Live Capture)
+// =========================================================
+const Practice = {
+    active: false,
+    pausedState: null, // Snapshot of positions & velocities
+    selectedIdx: 0,    // 0=Puck, 1..N=Players
+    
+    // Toggle Practice Mode manually
+    toggle: function() {
+        this.active = !this.active;
+        gameState = this.active ? 'practice' : 'menu';
+        
+        if (this.active) {
+            isPaused = true; // Freeze immediately
+            faceoffPauseUntil = 0;
+            goalResetTimer = null;
+            whistleEndTimer = null;
+            
+            // If we don't have a saved state yet, save the current one
+            if (!this.pausedState) this.captureLiveState();
+        }
+    },
+
+    // *** NEW: CAPTURE THE MOMENT ***
+    captureLiveState: function() {
+        this.pausedState = {
+            // Capture Puck Physics
+            puck: { 
+                x: puck.x, y: puck.y, 
+                vx: puck.vx, vy: puck.vy,
+                ownerId: puck.ownerId 
+            },
+            // Capture Player Physics
+            players: players.map(p => ({ 
+                id: p.id,
+                x: p.x, y: p.y, 
+                vx: p.vx, vy: p.vy, 
+                angle: p.angle 
+            }))
+        };
+        
+        // Force game into Practice Mode
+        this.active = true;
+        gameState = 'practice';
+        isPaused = true; // Freeze
+        
+        // console.log("📸 SCENE CAPTURED! Press SPACE to Replay.");
+    },
+
+    restoreState: function() {
+        if (!this.pausedState) return;
+        
+        const s = this.pausedState;
+        
+        // Restore Puck
+        puck.x = s.puck.x; 
+        puck.y = s.puck.y;
+        puck.vx = s.puck.vx; 
+        puck.vy = s.puck.vy;
+        puck.ownerId = s.puck.ownerId; // Restore possession if held
+
+        // Restore Players
+        // We match by ID to ensure stability
+        s.players.forEach(saved => {
+            const p = getPlayerById(saved.id);
+            if (p) {
+                p.x = saved.x;
+                p.y = saved.y;
+                p.vx = saved.vx; 
+                p.vy = saved.vy;
+                p.angle = saved.angle;
+                
+                // Reset Brain Memory so they rethink the situation fresh
+                if (p.brain) p.brain = {}; 
+            }
+        });
+        
+        // Ensure we are paused so we can see the setup
+        isPaused = true; 
+    },
+
+    runPlay: function() {
+        // Toggle: If Frozen -> Run. If Running -> Reset.
+        if (isPaused) {
+            isPaused = false; // Action!
+        } else {
+            this.restoreState(); // Reset to snapshot
+        }
+    },
+    
+    // ... [Keep cycleSelection, moveSelection, cycleStrategy, drawUI as they were] ...
+    cycleSelection: function() {
+        this.selectedIdx++;
+        if (this.selectedIdx > players.length) this.selectedIdx = 0;
+    },
+
+    moveSelection: function(dx, dy) {
+        if (this.selectedIdx === 0) {
+            puck.x += dx; puck.y += dy; puck.vx = 0; puck.vy = 0;
+        } else {
+            const p = players[this.selectedIdx - 1];
+            if (p) { p.x += dx; p.y += dy; p.vx = 0; p.vy = 0; }
+        }
+    },
+
+    cycleStrategy: function(teamId) {
+        const keys = Object.keys(Strategies);
+        if (keys.length === 0) return;
+        let currentId = (teamId === 0) ? Team0_Strategy.id : Team1_Strategy.id;
+        let idx = keys.indexOf(currentId);
+        idx = (idx + 1) % keys.length;
+        const newStrat = Strategies[keys[idx]];
+        if (teamId === 0) {
+            Team0_Strategy = newStrat;
+            TEAM0_COLOR = newStrat.colors.main;
+            TEAM0_COLOR_HAS_PUCK = newStrat.colors.secondary;
+        } else {
+            Team1_Strategy = newStrat;
+            TEAM1_COLOR = newStrat.colors.main;
+            TEAM1_COLOR_HAS_PUCK = newStrat.colors.secondary;
+        }
+    },
+
+    drawUI: function() {
+        if (gameState !== 'practice') return;
+
+        ctx.save();
+        // Banner
+        ctx.fillStyle = "rgba(200, 50, 0, 0.8)"; // Red for "Recording" feel
+        ctx.fillRect(0, 0, W, 40);
+        ctx.fillStyle = "#fff";
+        ctx.font = "bold 20px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText(`SCENE EDITOR - [SPACE] Replay | [C] Capture New | [ARROWS] Move`, W/2, 27);
+
+        // Selection Ring
+        let targetX = 0, targetY = 0, r = 0;
+        if (this.selectedIdx === 0) { targetX = puck.x; targetY = puck.y; r = 15; } 
+        else { const p = players[this.selectedIdx - 1]; if (p) { targetX = p.x; targetY = p.y; r = 25; } }
+
+        ctx.strokeStyle = "white"; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(targetX, targetY, r, 0, Math.PI*2); ctx.stroke();
+
+        ctx.restore();
+    }
+};
+
+
+
+
+
+
+// --- INPUT HOOK ---
+document.addEventListener("keydown", e => {
+    
+    // 1. GLOBAL CAPTURE KEY (Works in Game OR Pause)
+    if (e.key === 'c' || e.key === 'C') {
+        // If we are playing (or paused mid-game), Capture!
+        if (gameState === 'playing' || isPaused) {
+            Practice.captureLiveState();
+        }
+        return;
+    }
+
+    // 2. TOGGLE PRACTICE MODE
+    if (e.key === 'm' || e.key === 'M') {
+        Practice.toggle();
+        return;
+    }
+
+    // 3. PRACTICE CONTROLS
+    if (Practice.active) {
+        if (e.key === "Tab") { e.preventDefault(); Practice.cycleSelection(); }
+        if (e.key === " ")   { e.preventDefault(); Practice.runPlay(); }
+        if (e.key === "[")   Practice.cycleStrategy(0);
+        if (e.key === "]")   Practice.cycleStrategy(1);
+
+        const speed = e.shiftKey ? 10 : 2;
+        if (e.key === "ArrowUp")    Practice.moveSelection(0, -speed);
+        if (e.key === "ArrowDown")  Practice.moveSelection(0, speed);
+        if (e.key === "ArrowLeft")  Practice.moveSelection(-speed, 0);
+        if (e.key === "ArrowRight") Practice.moveSelection(speed, 0);
+        
+        // Update the snapshot if we move things manually
+        if (isPaused && (e.key.startsWith("Arrow"))) {
+             Practice.captureLiveState(); // Re-save the edited positions
+        }
+    }
+
+    // ... [Existing Pause 'P' logic remains here] ...
+});
+
+
+
+
+
+</script>
+
+
+
+</body>
+</html>
