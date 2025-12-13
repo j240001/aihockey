@@ -1,0 +1,1033 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>BRAIN BUILDER V 0021 (Fixed Export)</title>
+<style>
+    /* GLOBAL BOX SIZING FIX */
+    * { box-sizing: border-box; }
+
+    :root { --bg: #1e1e2e; --panel: #252535; --node: #333344; --accent: #7aa2f7; --border: #444; }
+    body { background: var(--bg); color: #c0caf5; font-family: 'Segoe UI', monospace; display: flex; gap: 10px; padding: 10px; height: 98vh; overflow: hidden; font-size: 12px; }
+
+    /* Custom Scrollbars */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #111; }
+    ::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #555; }
+
+    .panel { 
+        background: var(--panel); 
+        padding: 10px; 
+        border-radius: 4px; 
+        width: 240px; 
+        min-width: 240px; 
+        display: flex; 
+        flex-direction: column; 
+        border: 1px solid var(--border); 
+    }
+    .panel h3 { margin: 0 0 10px 0; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 5px; font-size: 14px; }
+
+    .workspace { 
+        flex: 1; 
+        background: #16161e; 
+        border: 1px solid var(--border); 
+        border-radius: 4px; 
+        padding: 10px; 
+        overflow: auto; /* Enable BOTH X and Y scrolling on the main container */
+        display: flex; 
+        gap: 10px; 
+        min-width: 0; 
+    }
+
+    .tree-column { 
+        flex: 1; 
+        min-width: 180px; 
+        display: flex; 
+        flex-direction: column; 
+        border-right: 1px dashed #333; 
+        padding-right: 5px; 
+        
+        /* KEEP the padding to create the space */
+        padding-bottom: 500px; 
+    }
+
+    .tree-column:last-child { border-right: none; }
+    
+    .tree-column h4 { 
+        text-align: center; 
+        color: #7dcfff; 
+        background: #222; 
+        padding: 8px; 
+        margin: 0 0 10px 0; 
+        border-radius: 3px; 
+        font-size: 13px; 
+        font-weight: bold;
+        letter-spacing: 0.5px;
+    }
+
+    /* --- ROOT BOXES --- */
+    .main-root {
+        flex: 1; 
+        min-height: 150px; 
+        border: 2px dashed #333; 
+        background: rgba(255,255,255,0.02);
+        border-radius: 4px;
+        margin-bottom: 5px;
+        transition: all 0.2s;
+        cursor: pointer;
+    }
+    
+    .main-root:hover {
+        background: rgba(255,255,255,0.05);
+        border-color: #555;
+    }
+
+    .tree-block[style*="border-color"] {
+        background: rgba(122, 162, 247, 0.1) !important;
+        border-style: solid !important;
+    }
+
+    .tree-block { 
+        padding-left: 12px; 
+        min-height: 10px; 
+        margin-left: 4px; 
+        padding-bottom: 10px; 
+    }
+    
+    .tree-block:not(.main-root) {
+        border-left: 1px solid #555;
+    }
+
+    .btn-move {
+        cursor: pointer;
+        color: #666;
+        font-size: 10px;
+        padding: 2px 4px;
+        border-radius: 3px;
+        background: rgba(0,0,0,0.2);
+        transition: all 0.1s;
+    }
+    .btn-move:hover {
+        color: #fff;
+        background: var(--accent);
+    }
+
+    .node { 
+        background: var(--node); 
+        padding: 4px 8px; 
+        border-radius: 3px; 
+        margin: 4px 0; 
+        display: flex; 
+        align-items: center; 
+        justify-content: space-between;
+        cursor: pointer; 
+        border: 1px solid #444; 
+        font-size: 11px; 
+        box-shadow: 1px 1px 3px rgba(0,0,0,0.2); 
+        transition: all 0.1s;
+        flex-wrap: wrap; 
+    }
+    .node:hover { border-color: var(--accent); background: #3b3b4d; }
+    .node span.del { color: #f7768e; font-weight: bold; cursor: pointer; padding: 0 6px; font-size: 14px; }
+    
+    .node span.label { font-weight: 700; pointer-events: none; letter-spacing: 0.5px; }
+
+    .node[data-cat="struct"] { border-left: 3px solid #bb9af7; }
+    .node[data-cat="cond"]   { border-left: 3px solid #e0af68; }
+    .node[data-cat="act"]    { border-left: 3px solid #9ece6a; }
+
+    button.btn { background: #3b4261; color: white; border: none; padding: 6px; margin-bottom: 3px; width: 100%; text-align: left; cursor: pointer; border-radius: 3px; font-size: 11px; }
+    button.btn:hover { background: var(--accent); color:#111; }
+    
+    button.btn:disabled { 
+        background: #1a1a20; 
+        color: #444; 
+        cursor: not-allowed; 
+        border-left: 3px solid #332222; 
+        opacity: 0.6;
+    }
+    button.btn:disabled:hover { background: #1a1a20; }
+
+    button.btn-success { background: #41a6b5; }
+    button.btn-warn { background: #e0af68; color: #111; }
+
+    .palette-header { color:#666; font-size:10px; margin-top:10px; margin-bottom:4px; font-weight:bold; }
+    .palette-header:first-child { margin-top:0; }
+
+    #inspectorFields label { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+    #inspectorFields input { background: #111; border: 1px solid #555; color: #fff; width: 60px; padding: 2px 5px; border-radius: 3px; text-align: right; }
+
+    .export-area { width: 100%; flex: 1; background: #111; color: #73daca; border: 1px solid var(--border); padding: 10px; font-family: monospace; resize: none; font-size: 10px; border-radius: 4px; margin-top: 5px; }
+    
+    .active-drop { background: rgba(122,162,247,0.15); border-color: var(--accent); }
+    
+    input[type="text"] { min-width: 0; }
+</style>
+</head>
+<body>
+
+<div class="panel">
+    <h3>Node Palette</h3>
+    <div id="paletteArea" style="overflow-y:auto; flex:1;"></div>
+</div>
+
+<div class="workspace" id="workspace">
+    <div class="tree-column">
+        <h4 style="color:#7dcfff">Center (C)</h4>
+        <div id="rootC" class="tree-block main-root"></div>
+    </div>
+    <div class="tree-column">
+        <h4 style="color:#9ece6a">Left Wing (LW)</h4>
+        <div id="rootLW" class="tree-block main-root"></div>
+    </div>
+    <div class="tree-column">
+        <h4 style="color:#9ece6a">Right Wing (RW)</h4>
+        <div id="rootRW" class="tree-block main-root"></div>
+    </div>
+    <div class="tree-column">
+        <h4 style="color:#e0af68">Left Def (LD)</h4>
+        <div id="rootLD" class="tree-block main-root"></div>
+    </div>
+    <div class="tree-column">
+        <h4 style="color:#e0af68">Right Def (RD)</h4>
+        <div id="rootRD" class="tree-block main-root"></div>
+    </div>
+</div>
+
+<div class="panel">
+    <div style="flex: 0 0 auto; margin-bottom: 10px; border-bottom: 1px solid #444; padding-bottom: 10px;">
+        <h3>Inspector</h3>
+        <div id="inspectorFields" style="font-size:11px;color:#aaa;">
+            <i>Select a node or column to edit.</i>
+        </div>
+        
+        <div style="margin-top:10px; padding-top:10px; border-top:1px dashed #444;">
+            <button id="btnPaste" class="btn btn-warn" onclick="pasteNode()" style="display:none; text-align:center; font-weight:bold;">📋 PASTE NODE</button>
+            <div id="clipboardStatus" style="font-size:10px; color:#666; text-align:center; margin-top:4px;">Clipboard Empty</div>
+        </div>
+        
+        <div id="contextDebug" style="font-size:10px; color:#aaa; text-align:center; margin-top:8px; font-family:monospace;">
+            Context: ANY
+        </div>
+    </div>
+
+    <div style="flex: 0 0 auto; margin-bottom: 20px; border-bottom: 1px solid #444; padding-bottom: 10px;">
+        <h3>Team Settings</h3>
+        <div style="display:flex; flex-direction:column; gap:5px; margin-bottom:5px;">
+            <input type="text" id="metaStratName" placeholder="Strategy Name" value="My Strategy" 
+                   style="background:#111; border:1px solid #555; color:#fff; padding:3px; border-radius:3px;">
+            
+            <div style="display:flex; gap:5px;">
+                <input type="text" id="metaTeamName" placeholder="Team Name" value="Custom Team" 
+                       style="background:#111; border:1px solid #555; color:#fff; padding:3px; border-radius:3px; flex:2; min-width:0;">
+                <input type="text" id="metaCode" placeholder="ABC" value="CST" maxlength="3" 
+                       style="background:#111; border:1px solid #555; color:#fff; padding:3px; border-radius:3px; flex:1; min-width:0; text-transform:uppercase; text-align:center;">
+            </div>
+        </div>
+
+        <div style="display:flex; gap:10px; align-items:center; margin-top:5px;">
+            <div style="display:flex; flex-direction:column; align-items:center;">
+                <input type="color" id="metaColor1" value="#b80000" style="border:none; width:40px; height:20px; cursor:pointer; padding:0; background:none;">
+                <span style="font-size:9px; color:#aaa;">Main</span>
+            </div>
+            <div style="display:flex; flex-direction:column; align-items:center;">
+                <input type="color" id="metaColor2" value="#ff9d00" style="border:none; width:40px; height:20px; cursor:pointer; padding:0; background:none;">
+                <span style="font-size:9px; color:#aaa;">Sec</span>
+            </div>
+        </div>
+    </div>
+
+    <h3>Output</h3>
+    <div style="display:flex; gap:5px; margin-bottom:5px;">
+        <input type="text" id="fileName" placeholder="Filename" value="strategy" 
+               style="background:#111; border:1px solid #555; color:#73daca; width:80px; padding:0 5px; border-radius:3px; min-width:0;">
+
+        <button class="btn" onclick="saveLayout()" style="background:#41a6b5; font-weight:bold;">💾</button>
+        <button class="btn" onclick="triggerLoad()" style="background:#9d7cd8; font-weight:bold;">📂</button>
+        <input type="file" id="fileInput" style="display:none" onchange="loadLayout(this)">
+    </div>
+    <button class="btn" style="background:var(--accent); color:#111; font-weight:bold;" onclick="exportBT()">GENERATE CODE</button>
+    <textarea id="output" class="export-area"></textarea>
+</div>
+
+<script>
+// ==========================================
+// CONFIG: NODE DEFINITIONS & CONSTRAINTS
+// ==========================================
+const NODE_LIBRARY = [
+    { header: "FLOW CONTROL" },
+    { type: "Selector",         cat: "struct", label: "Selector",           acr: "SEL",  req: "ANY" },
+    { type: "Sequence",         cat: "struct", label: "Sequence",           acr: "SEQ",  req: "ANY" },
+    
+    { header: "STATE SETTERS (Context)" },
+    { type: "condHasPuck",          cat: "cond", label: "Has Puck",             acr: "HAVE",  sets: "OFF", req: "ANY" },
+    { type: "condTeamHasPuck",      cat: "cond", label: "Teammate Has",         acr: "TM",    sets: "OFF", req: "ANY" },
+    { type: "condOppHasPuck",       cat: "cond", label: "Opponent Has",         acr: "OPP",   sets: "DEF", req: "ANY" },
+    { type: "condLoosePuck",        cat: "cond", label: "Loose Puck",           acr: "LOOSE", sets: "NEU", req: "ANY" },
+
+    { header: "OFFSIDE LOGIC (DLY)" },
+    { type: "condTeammatesOffside", cat: "cond", label: "Teammates Offside",    acr: "OFFS?", sets: "DLY", req: "ANY" },
+    { type: "actTagUp_T1",          cat: "act",  label: "Tag Up",               acr: "TAG",   req: "DLY" }, 
+    
+    { header: "CHECKS (No Context Change)" },
+    { type: "condPuckInDefZone",    cat: "cond", label: "Puck Def Zone",        acr: "DZ",    req: "ANY" },
+    { type: "condPuckInNeuZone",    cat: "cond", label: "Puck Neu Zone",        acr: "NZ",    req: "ANY" },
+    { type: "condPuckInOffZone",    cat: "cond", label: "Puck Off Zone",        acr: "OZ",    req: "ANY" },
+    { type: "condAmIClosest",       cat: "cond", label: "Am I Closest?",        acr: "ME?",   req: "ANY" },
+
+    { header: "OFFENSIVE ACTIONS" },
+    { type: "condInShotRange",      cat: "cond", label: "In Shot Range",        acr: "RNG",   req: "OFF" },
+    { type: "condForwardLaneClear", cat: "cond", label: "Fwd Lane Clear",       acr: "CLR?",  req: "OFF" },
+    { type: "condHasBreakoutPass",  cat: "cond", label: "Has Breakout",         acr: "BRK?",  req: "OFF" },
+    { type: "condHasBackdoor",      cat: "cond", label: "Has Backdoor",         acr: "BD?",   req: "OFF" },
+    { type: "condIsPressured",      cat: "cond", label: "Is Pressured",         acr: "PRES?", req: "OFF" },
+    
+    { type: "actShoot",             cat: "act",  label: "Shoot",                acr: "SHOT",  req: "OFF" },
+    { type: "actDriveNet",          cat: "act",  label: "Drive Net",            acr: "DRIV",  req: "ANY" },
+    { type: "actExecuteCarry",      cat: "act",  label: "Execute Carry",        acr: "CARY",  req: "ANY" },
+    { type: "actExecutePass",       cat: "act",  label: "Execute Pass",         acr: "PASS",  req: "ANY" },
+    { type: "actSupportPosition",   cat: "act",  label: "Support Pos",          acr: "SUP",   req: "ANY" },
+    { type: "actGoBackdoor",        cat: "act",  label: "Go Backdoor",          acr: "OBD",   req: "OFF" },
+
+    { header: "DEFENSIVE ACTIONS" },
+    { type: "actDefendHome",        cat: "act",  label: "Defend Home",          acr: "HOME",  req: "DEF" },
+    { type: "actAggressiveGap",     cat: "act",  label: "Aggressive Gap",       acr: "GAP",   req: "ANY" },
+    { type: "actClearPuck",         cat: "act",  label: "Clear Puck",           acr: "CLR",   req: "DEF" }, 
+
+    { header: "NEUTRAL ACTIONS" },
+    { type: "actSmartIntercept",    cat: "act",  label: "Smart Intercept",      acr: "INT",   req: "ANY" },
+
+    { header: "UNIVERSAL" },
+    { type: "actHoverBlueLine",     cat: "act",  label: "Hover Blue Line",      acr: "HOVR",  req: "ANY" }, 
+    { type: "actRegroup",           cat: "act",  label: "Regroup",              acr: "GRP",   req: "ANY" }, 
+    
+    { type: "actIdle",              cat: "act",  label: "Idle / Stop",          acr: "IDLE",  req: "ANY" },
+    { type: "actChill",             cat: "act",  label: "Chill",                acr: "CHIL",  req: "ANY" },
+    { type: "actSafetyPosition",    cat: "act",  label: "Safety Pos",           acr: "SAFE",  req: "ANY" },
+];
+
+function getNodeConfig(type) {
+    return NODE_LIBRARY.find(n => n.type === type) || { label: type, acr: type, req: "ANY" };
+}
+
+(function initPalette() {
+    const area = document.getElementById('paletteArea');
+    NODE_LIBRARY.forEach(item => {
+        if (item.header) {
+            const p = document.createElement('div');
+            p.className = 'palette-header';
+            p.innerText = item.header;
+            area.appendChild(p);
+        } else {
+            const btn = document.createElement('button');
+            btn.className = 'btn';
+            btn.id = `btn_${item.type}`; 
+            btn.innerText = `${item.label} [${item.acr}]`;
+            btn.onclick = () => addNode(item.type, item.cat);
+            area.appendChild(btn);
+        }
+    });
+})();
+
+// ==========================================
+// CORE LOGIC 
+// ==========================================
+let selectedBlockId = null;
+let selectedNode = null; 
+let idCounter = 0;
+let clipboardData = null; 
+
+document.getElementById('workspace').addEventListener('click', e => {
+    if (!e.target.closest('.node') && !e.target.closest('.tree-block')) {
+        deselectAll();
+    }
+    const rootBox = e.target.closest('.main-root');
+    if (rootBox && !e.target.closest('.node')) {
+        selectBlock(rootBox.id);
+    }
+});
+
+document.addEventListener('keydown', e => {
+    if (e.ctrlKey && e.key === 'c' && selectedNode) {
+        copyNode(selectedNode);
+        e.preventDefault();
+    }
+    if (e.ctrlKey && e.key === 'v' && selectedBlockId && clipboardData) {
+        pasteNode();
+        e.preventDefault();
+    }
+});
+
+function deselectAll() {
+    document.querySelectorAll('.tree-block').forEach(b => b.style.borderColor = '');
+    document.querySelectorAll('.node').forEach(n => n.style.outline = '');
+    selectedBlockId = null;
+    selectedNode = null;
+    document.getElementById('inspectorFields').innerHTML = "<i>Select a node or column to edit.</i>";
+    updatePalette("ANY"); 
+}
+
+// --------------------------------------------------------------------------
+// THE BRAIN: Context Determination (Tree Walking)
+// --------------------------------------------------------------------------
+function getEffectiveContext(blockId) {
+    let el = document.getElementById(blockId);
+    if (!el) return "ANY";
+
+    const parentNode = el.parentNode; 
+    
+    if (!parentNode || !parentNode.classList.contains('node')) {
+        return "ANY";
+    }
+    
+    const parentType = parentNode.dataset.type;
+    
+    if (parentType === "Selector") {
+        const parentBlock = parentNode.closest('.tree-block');
+        return parentBlock ? getEffectiveContext(parentBlock.id) : "ANY";
+    }
+    
+    if (parentType === "Sequence") {
+        let context = "ANY";
+        for (let child of el.children) {
+            if (!child.classList.contains('node')) continue;
+            const type = child.dataset.type;
+            const cfg = getNodeConfig(type);
+            if (cfg.sets) context = cfg.sets; 
+        }
+        
+        if (context !== "ANY") return context;
+        
+        const parentBlock = parentNode.closest('.tree-block');
+        return parentBlock ? getEffectiveContext(parentBlock.id) : "ANY";
+    }
+
+    return "ANY";
+}
+
+function updatePalette(context) {
+    document.getElementById('contextDebug').innerText = `Context: ${context}`;
+    
+    NODE_LIBRARY.forEach(item => {
+        if (item.header) return;
+        const btn = document.getElementById(`btn_${item.type}`);
+        if (!btn) return;
+
+        if (item.req === "ANY") {
+            if (item.sets && context !== "ANY") {
+                btn.disabled = true; 
+            } else {
+                btn.disabled = false;
+            }
+            return;
+        }
+
+        if (item.req === context) {
+            btn.disabled = false;
+        } else {
+            btn.disabled = true;
+        }
+    });
+}
+
+function selectBlock(id) {
+    document.querySelectorAll('.tree-block').forEach(b => b.style.borderColor = '');
+    const el = document.getElementById(id);
+    if(el) {
+        el.style.borderColor = '#7aa2f7';
+        el.style.borderWidth = '2px';
+        selectedBlockId = id;
+        const ctx = getEffectiveContext(id);
+        updatePalette(ctx);
+    }
+}
+
+// --------------------------------------------------------------------------
+
+function addNode(type, cat) {
+    if (!selectedBlockId) { alert("Click inside a column box first."); return; }
+    
+    const currentCtx = getEffectiveContext(selectedBlockId);
+    const cfg = getNodeConfig(type);
+    
+    if (cfg.req !== "ANY" && cfg.req !== currentCtx) {
+        return;
+    }
+
+    const container = document.getElementById(selectedBlockId);
+    const div = document.createElement('div');
+    div.className = 'node';
+    div.dataset.type = type;
+    div.dataset.cat = cat;
+    div.draggable = true;
+
+    const displayText = cfg.acr; 
+    
+    let innerHTML = `
+        <span class="label">${displayText}</span> 
+        <div style="margin-left:auto; display:flex; gap:5px;">
+            <span class="btn-move" onclick="copyNodeButton(this)" title="Copy Node">📄</span>
+            <span class="btn-move" onclick="moveUp(this)" title="Move Up">▲</span>
+            <span class="btn-move" onclick="moveDown(this)" title="Move Down">▼</span>
+            <span class="del" onclick="event.stopPropagation(); this.closest('.node').remove(); setTimeout(() => selectBlock('${selectedBlockId}'), 50);">x</span>
+        </div>
+    `;
+
+    if (cat === 'struct') {
+        const blockId = 'blk_' + (++idCounter);
+        innerHTML += `<div class="tree-block" id="${blockId}"></div>`;
+        setTimeout(() => { selectBlock(blockId); }, 50);
+    }
+
+    if (type === "actSupportPosition") {
+        div.dataset.offsetx = "-40";
+        div.dataset.offsety = "60";
+    }
+    if (type === "actSafetyPosition") {
+        div.dataset.depth = "120";
+    }
+
+    div.innerHTML = innerHTML;
+    div.addEventListener('click', e => { e.stopPropagation(); selectNode(div); });
+    container.appendChild(div);
+    
+    setTimeout(() => {
+        const newCtx = getEffectiveContext(selectedBlockId);
+        updatePalette(newCtx);
+    }, 50);
+}
+
+function moveUp(btn) {
+    event.stopPropagation();
+    const node = btn.closest('.node');
+    const prev = node.previousElementSibling;
+    if (prev) {
+        node.parentNode.insertBefore(node, prev);
+        setTimeout(() => selectBlock(selectedBlockId), 50); 
+    }
+}
+
+function moveDown(btn) {
+    event.stopPropagation();
+    const node = btn.closest('.node');
+    const next = node.nextElementSibling;
+    if (next) {
+        node.parentNode.insertBefore(next, node);
+        setTimeout(() => selectBlock(selectedBlockId), 50);
+    }
+}
+
+function copyNodeButton(btn) {
+    event.stopPropagation();
+    copyNode(btn.closest('.node'));
+}
+
+function copyNode(nodeElement) {
+    if (!nodeElement) return;
+    clipboardData = serializeNode(nodeElement);
+    const status = document.getElementById('clipboardStatus');
+    status.innerText = `Copied: ${clipboardData.type}`;
+    status.style.color = "#7aa2f7";
+    document.getElementById('btnPaste').style.display = "block";
+    const originalBg = nodeElement.style.background;
+    nodeElement.style.background = "#41a6b5";
+    setTimeout(() => nodeElement.style.background = originalBg, 200);
+}
+
+function pasteNode() {
+    if (!clipboardData) { alert("Nothing to paste!"); return; }
+    if (!selectedBlockId) { alert("Select a location to paste into."); return; }
+    
+    processNodeTree(selectedBlockId, [clipboardData]);
+    setTimeout(() => selectBlock(selectedBlockId), 50);
+}
+
+function processNodeTree(targetId, list) {
+    list.forEach(nodeData => {
+        const savedSelection = selectedBlockId;
+        selectedBlockId = targetId; 
+        
+        const container = document.getElementById(targetId);
+        const div = document.createElement('div');
+        div.className = 'node';
+        div.dataset.type = nodeData.type;
+        div.dataset.cat = nodeData.cat;
+        div.draggable = true;
+        
+        const cfg = getNodeConfig(nodeData.type);
+        
+        let innerHTML = `
+            <span class="label">${cfg.acr}</span> 
+            <div style="margin-left:auto; display:flex; gap:5px;">
+                <span class="btn-move" onclick="copyNodeButton(this)">📄</span>
+                <span class="btn-move" onclick="moveUp(this)">▲</span>
+                <span class="btn-move" onclick="moveDown(this)">▼</span>
+                <span class="del" onclick="event.stopPropagation(); this.closest('.node').remove(); setTimeout(() => selectBlock('${selectedBlockId}'), 50);">x</span>
+            </div>
+        `;
+
+        if (nodeData.cat === 'struct') {
+            const blockId = 'blk_' + (++idCounter);
+            innerHTML += `<div class="tree-block" id="${blockId}"></div>`;
+        }
+        
+        div.innerHTML = innerHTML;
+        if (nodeData.offsetx) div.dataset.offsetx = nodeData.offsetx;
+        if (nodeData.offsety) div.dataset.offsety = nodeData.offsety;
+        if (nodeData.depth) div.dataset.depth = nodeData.depth;
+
+        div.addEventListener('click', e => { e.stopPropagation(); selectNode(div); });
+        container.appendChild(div);
+
+        if (nodeData.cat === 'struct' && nodeData.children) {
+            const childBlockId = div.querySelector('.tree-block').id;
+            processNodeTree(childBlockId, nodeData.children);
+        }
+        
+        selectedBlockId = savedSelection;
+    });
+}
+
+function selectNode(div) {
+    document.querySelectorAll('.node').forEach(n => n.style.outline = '');
+    div.style.outline = '2px solid var(--accent)';
+    selectedNode = div; 
+    showInspector(div);
+    const parentBlock = div.closest('.tree-block');
+    if (parentBlock) {
+        selectBlock(parentBlock.id);
+    }
+}
+
+function showInspector(div) {
+    const f = document.getElementById('inspectorFields');
+    f.innerHTML = '';
+    const type = div.dataset.type;
+    const cfg = getNodeConfig(type);
+
+    f.innerHTML = `<div style="color:#fff; margin-bottom:5px; font-weight:bold;">${cfg.label}</div>`;
+
+    if (type === "actSupportPosition") {
+        f.innerHTML += `
+            <label>X (Fwd/Back): <input type="number" id="edit_offsetx" value="${div.dataset.offsetx}"></label>
+            <div style="font-size:9px; color:#777; margin-bottom:5px;">Negative = Behind Carrier</div>
+            <label>Y (Side): <input type="number" id="edit_offsety" value="${div.dataset.offsety}"></label>
+        `;
+    } else if (type === "actSafetyPosition") {
+        f.innerHTML += `
+            <label>Dist from Net: <input type="number" id="edit_depth" value="${div.dataset.depth}"></label>
+        `;
+    } else {
+        f.innerHTML += "<div style='color:#666'>No parameters</div>";
+    }
+
+    f.querySelectorAll("input").forEach(input => {
+        input.addEventListener("input", () => {
+            const key = input.id.replace("edit_","");
+            div.dataset[key] = input.value;
+        });
+    });
+}
+
+let draggedItem = null;
+document.addEventListener('dragstart', e => { draggedItem = e.target.closest('.node'); e.dataTransfer.effectAllowed = 'move'; setTimeout(() => draggedItem.style.opacity = '0.5', 0); });
+document.addEventListener('dragend', e => { if (draggedItem) draggedItem.style.opacity = '1'; draggedItem = null; document.querySelectorAll('.active-drop').forEach(b => b.classList.remove('active-drop')); });
+document.addEventListener('dragover', e => { e.preventDefault(); const block = e.target.closest('.tree-block'); if (block) block.classList.add('active-drop'); });
+document.addEventListener('dragleave', e => { const block = e.target.closest('.tree-block'); if (block) block.classList.remove('active-drop'); });
+document.addEventListener('drop', e => { 
+    e.preventDefault(); 
+    const block = e.target.closest('.tree-block'); 
+    if (block && draggedItem) { 
+        if (draggedItem.contains(block)) return; 
+        block.classList.remove('active-drop'); 
+        block.appendChild(draggedItem);
+        setTimeout(() => selectBlock(block.id), 50); // Refresh context
+    } 
+});
+
+function serializeNode(el) {
+    const data = { type: el.dataset.type, cat: el.dataset.cat };
+    if (el.dataset.offsetx) data.offsetx = el.dataset.offsetx;
+    if (el.dataset.offsety) data.offsety = el.dataset.offsety;
+    if (el.dataset.depth) data.depth = el.dataset.depth;
+    if (data.cat === 'struct') {
+        const block = el.querySelector('.tree-block');
+        data.children = Array.from(block.children).filter(c => c.classList.contains('node')).map(serializeNode);
+    }
+    return data;
+}
+
+function saveLayout() {
+    const layout = { 
+        // 1. SAVE TEAM IDENTITY
+        name: document.getElementById('metaTeamName').value || "Custom Team",
+        code: (document.getElementById('metaCode').value || "CST").toUpperCase(),
+        colors: {
+            main: document.getElementById('metaColor1').value,
+            secondary: document.getElementById('metaColor2').value
+        },
+        
+        // 2. SAVE STRATEGY TREES
+        c: getColumnData('rootC'), 
+        lw: getColumnData('rootLW'), 
+        rw: getColumnData('rootRW'), 
+        ld: getColumnData('rootLD'),
+        rd: getColumnData('rootRD') 
+    };
+
+    const blob = new Blob([JSON.stringify(layout, null, 2)], {type: "application/json"});
+    let fileName = document.getElementById('fileName').value || "strategy";
+    if (!fileName.endsWith('.json')) fileName += ".json";
+    
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = fileName; 
+    a.click();
+}
+
+
+
+function getColumnData(id) {
+    return Array.from(document.getElementById(id).children).filter(c => c.classList.contains('node')).map(serializeNode);
+}
+
+
+function triggerLoad() { document.getElementById('fileInput').click(); }
+
+
+function loadLayout(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    
+    reader.onload = function(e) {
+        try {
+            const layout = JSON.parse(e.target.result);
+            
+            // 1. LOAD TEAM IDENTITY (If it exists)
+            if (layout.name) document.getElementById('metaTeamName').value = layout.name;
+            if (layout.code) document.getElementById('metaCode').value = layout.code;
+            if (layout.colors) {
+                document.getElementById('metaColor1').value = layout.colors.main;
+                document.getElementById('metaColor2').value = layout.colors.secondary;
+            }
+
+            // 2. LOAD TREES
+            document.getElementById('rootC').innerHTML = "";
+            document.getElementById('rootLW').innerHTML = "";
+            document.getElementById('rootRW').innerHTML = "";
+            document.getElementById('rootLD').innerHTML = "";
+            document.getElementById('rootRD').innerHTML = "";
+            
+            // Handle Legacy Format vs New Format
+            if(layout.attacker) { 
+                rebuildColumn('rootC', layout.attacker);
+                rebuildColumn('rootLW', layout.winger);
+                rebuildColumn('rootLD', layout.defender);
+            } else {
+                rebuildColumn('rootC', layout.c);
+                rebuildColumn('rootLW', layout.lw);
+                rebuildColumn('rootRW', layout.rw);
+                rebuildColumn('rootLD', layout.ld);
+                rebuildColumn('rootRD', layout.rd);
+            }
+        } catch(err) { alert("Error loading file: " + err); }
+    };
+    reader.readAsText(file);
+    input.value = "";
+}
+
+
+
+function rebuildColumn(rootId, nodesData) {
+    const originalSelection = selectedBlockId;
+    document.getElementById(rootId).innerHTML = "";
+    if (nodesData) processNodeTree(rootId, nodesData);
+    selectedBlockId = originalSelection;
+}
+
+function buildCode(el, indent) {
+    if (!el) return '';
+    const pad = '    '.repeat(indent);
+    const type = el.dataset.type;
+    const cat = el.dataset.cat;
+
+    if (cat === 'struct') {
+        const block = el.querySelector('.tree-block');
+        const children = Array.from(block.children).filter(c => c.classList.contains('node'));
+        let str = `${pad}new ${type}Node([\n`;
+        children.forEach((child,i) => {
+            str += buildCode(child, indent+1) + (i < children.length-1 ? ',' : '') + '\n';
+        });
+        str += `${pad}])`;
+        return str;
+    }
+
+    if (type === "actSupportPosition") {
+        const ox = Number(el.dataset.offsetx) || 0;
+        const oy = Number(el.dataset.offsety) || 0;
+
+        return `${pad}new ActionNode(bb => {
+            const carrier = getPlayerById(puck.ownerId);
+            if (!carrier) return { tx: bb.p.x, ty: bb.p.y, action:'none' };
+
+            const finalX = carrier.x + (bb.forwardDir * ${ox});
+            const finalY = carrier.y + (${oy});
+
+            return { tx: finalX, ty: finalY, action:'none' };
+        })`;
+    }
+
+
+    if (type === "actAggressiveGap") {
+        return `${pad}new ActionNode(bb => {
+            const carrier = getPlayerById(puck.ownerId) || {x:puck.x, y:puck.y};
+            return getAggressiveGapTarget(bb.p, carrier, bb.myGoalX);
+        })`;
+    }
+
+    if (type === "condTeammatesOffside") return `${pad}new ConditionNode(bb => checkTeammatesOffside(bb.p))`;
+
+    if (type === "actRegroup") {
+        return `${pad}new ActionNode(bb => ({ 
+            tx: bb.myGoalX + (bb.forwardDir * 150), 
+            ty: RY, 
+            action: "none" 
+        }))`;
+    }
+
+    if (type === "actGoBackdoor") return `${pad}new ActionNode(bb => getBackdoorPosition(bb.p))`;
+
+    if (type === "condHasBackdoor") {
+        return `${pad}new ConditionNode(bb => {
+            const target = findBackdoorTarget(bb.p);
+            if (target) { bb.passTarget = target; return true; }
+            return false;
+        })`;
+    }
+
+    if (type === "actClearPuck") return `${pad}new ActionNode(bb => clearPuckDefensive(bb.p))`;
+
+    if (type === "actSafetyPosition") {
+        const depth = Number(el.dataset.depth) || 120;
+
+        return `${pad}new ActionNode(bb => ({
+            tx: bb.myGoalX + (bb.forwardDir * ${depth}),
+            ty: RY,
+            action:'none'
+        }))`;
+    }
+
+    return `${pad}${type}`;
+}
+
+function exportBT() {
+    const getRoot = id => {
+        const r = document.getElementById(id).firstElementChild;
+        return r ? buildCode(r,2) : 'actIdle'; 
+    };
+
+    const codeC = getRoot('rootC');
+    const codeLW = getRoot('rootLW');
+    const codeRW = getRoot('rootRW');
+    const codeLD = getRoot('rootLD');
+    const codeRD = getRoot('rootRD');
+
+    const sName = document.getElementById('metaStratName').value || "My Strategy";
+    const tName = document.getElementById('metaTeamName').value || "Custom Team";
+    const tCode = (document.getElementById('metaCode').value || "CST").toUpperCase();
+    const c1 = document.getElementById('metaColor1').value;
+    const c2 = document.getElementById('metaColor2').value;
+
+    const final = `// ==========================================
+// STRATEGY: ${sName} (${tCode})
+// Generated by Builder V21
+// ==========================================
+(function() {
+    const STRATEGY_ID = "BT_" + "${tCode}_" + Math.floor(Math.random()*99999);
+    
+    // --- ENGINE ---
+    class Node{constructor(){} tick(bb){return false;}}
+    class ConditionNode extends Node{constructor(fn){super();this.fn=fn;} tick(bb){return this.fn(bb)?"SUCCESS":"FAILURE";}}
+    class ActionNode extends Node{constructor(fn){super();this.fn=fn;} tick(bb){return this.fn(bb);}}
+    class SequenceNode extends Node{constructor(c){super();this.children=c;} tick(bb){for(let n of this.children){let r=n.tick(bb);if(r!=="SUCCESS")return r;}return"SUCCESS";}}
+    class SelectorNode extends Node{constructor(c){super();this.children=c;} tick(bb){for(let n of this.children){let r=n.tick(bb);if(r!=="FAILURE")return r;}return"FAILURE";}}
+
+    // --- HELPERS ---
+    function predictPuckIntersection(p) {
+        if (typeof puck === 'undefined' || isNaN(puck.x)) return { x: p.x, y: p.y };
+        return { x: puck.x + puck.vx * 10, y: puck.y + puck.vy * 10 };
+    }
+
+    function makeBB(p) {
+        const safeRX = (typeof RX !== 'undefined') ? RX : 500;
+        const safeGoal1 = (typeof goal1 !== 'undefined') ? goal1 : 175;
+        const safeGoal2 = (typeof goal2 !== 'undefined') ? goal2 : 825;
+        const myGoalX = (p.team === 0 ? safeGoal1 : safeGoal2);
+        const enemyGoal = (p.team === 0 ? safeGoal2 : safeGoal1);
+        const forwardDir = (enemyGoal > myGoalX ? 1 : -1);
+        const carrier = getPlayerById(puck.ownerId);
+
+        return {
+            p, myGoalX, enemyGoal, forwardDir, safeRX,
+            hasPuck: (puck.ownerId === p.id),
+            loosePuck: (puck.ownerId === null),
+            oppHasPuck: (carrier && carrier.team !== p.team),
+            teamHasPuck: (carrier && carrier.team === p.team),
+            inShotRange: (Math.hypot(enemyGoal - p.x, RY - p.y) < 200),
+            puckInDefZone: (forwardDir === 1 ? puck.x < safeRX - 60 : puck.x > safeRX + 60),
+            puckInOffZone: (forwardDir === 1 ? puck.x > safeRX + 60 : puck.x < safeRX - 60),
+            puckInNeuZone: (Math.abs(puck.x - safeRX) <= 60),
+            interceptPoint: predictPuckIntersection(p),
+            carryTarget: null, passTarget: null
+        };
+    }
+
+    // --- CONDITIONS ---
+    const condHasPuck = new ConditionNode(bb => bb.hasPuck);
+    const condLoosePuck = new ConditionNode(bb => bb.loosePuck);
+    const condInShotRange = new ConditionNode(bb => bb.inShotRange);
+    const condTeamHasPuck = new ConditionNode(bb => bb.teamHasPuck);
+    const condOppHasPuck = new ConditionNode(bb => bb.oppHasPuck);
+    const condPuckInDefZone = new ConditionNode(bb => bb.puckInDefZone);
+    const condPuckInOffZone = new ConditionNode(bb => bb.puckInOffZone);
+    const condPuckInNeuZone = new ConditionNode(bb => bb.puckInNeuZone);
+    const condTeammatesOffside = new ConditionNode(bb => checkTeammatesOffside(bb.p));
+    
+    const condIsPressured = new ConditionNode(bb => {
+        let pressureCount = 0;
+        for (const o of players) {
+            if (o.team !== bb.p.team && Math.hypot(o.x - bb.p.x, o.y - bb.p.y) < 80) pressureCount++;
+        }
+        return pressureCount >= 2;
+    });
+
+    const condAmIClosest = new ConditionNode(bb => {
+        let c = null, d = 9999;
+        for (let m of players) {
+            // FIX: Added "&& m.type === 'skater'" to ignore the goalie
+            if (m.team === bb.p.team && m.type === 'skater') { 
+                let dist = Math.hypot(m.x - puck.x, m.y - puck.y);
+                if (dist < d) { d = dist; c = m; }
+            }
+        }
+        return c && c.id === bb.p.id;
+    });
+
+    const condForwardLaneClear = new ConditionNode(bb => {
+        bb.carryTarget = { x: bb.p.x + bb.forwardDir * 100, y: bb.p.y };
+        return !isLaneBlocked(bb.p.x, bb.p.y, bb.carryTarget.x, bb.carryTarget.y, bb.p.team);
+    });
+
+    const condHasBreakoutPass = new ConditionNode(bb => {
+        for (let m of players) {
+            if (m.team === bb.p.team && m.id !== bb.p.id && m.type === 'skater' && (m.x - bb.p.x) * bb.forwardDir > 0) {
+                if (!isLaneBlocked(bb.p.x, bb.p.y, m.x, m.y, bb.p.team)) {
+                    bb.passTarget = m;
+                    return true;
+                }
+            }
+        }
+        return false;
+    });
+
+    // --- ACTIONS ---
+    const actShoot = new ActionNode(bb => ({ tx: bb.enemyGoal, ty: RY, action: "shoot" }));
+    const actIdle = new ActionNode(bb => ({ tx: bb.p.x, ty: bb.p.y, action: "none" }));
+    const actChill = new ActionNode(bb => ({ tx: bb.p.x, ty: bb.p.y, action: "none" }));
+    
+    const actDriveNet = new ActionNode(bb => ({ 
+        tx: bb.enemyGoal - (bb.forwardDir * 40), 
+        ty: RY, 
+        action: "none" 
+    }));
+
+    const actHoverBlueLine = new ActionNode(bb => {
+        let yOff = 0;
+        if (bb.p.role === 'LW' || bb.p.role === 'LD') yOff = -100;
+        if (bb.p.role === 'RW' || bb.p.role === 'RD') yOff = 100;
+        return { tx: (bb.forwardDir === 1 ? bb.safeRX + 60 : bb.safeRX - 60), ty: RY + yOff, action: "none" };
+    });
+
+    const actTagUp_T1 = new ActionNode(bb => ({ tx: bb.safeRX - bb.forwardDir * 50, ty: RY, action: "none" }));
+
+    const actSmartIntercept = new ActionNode(bb => {
+        const target = getPuckIntercept(bb.p);
+        return { tx: target.x, ty: target.y, action: "none" };
+    });
+
+    const actExecuteCarry = new ActionNode(bb => {
+        if (bb.carryTarget) return { tx: bb.carryTarget.x, ty: bb.carryTarget.y, action: "none" };
+        let yOff = 0;
+        if (bb.p.role === 'LW' || bb.p.role === 'LD') yOff = -120;
+        if (bb.p.role === 'RW' || bb.p.role === 'RD') yOff = 120;
+        return { tx: bb.enemyGoal, ty: RY + yOff, action: "none" };
+    });
+
+    const actExecutePass = new ActionNode(bb => {
+        if (bb.passTarget) return { tx: bb.passTarget.x, ty: bb.passTarget.y, action: "pass", target: bb.passTarget };
+        return { tx: bb.enemyGoal, ty: RY, action: "none" };
+    });
+
+    const actDefendHome = new ActionNode(bb => {
+        let yOff = 0;
+        if (bb.p.role === 'LD' || bb.p.role === 'LW') yOff = -60;
+        if (bb.p.role === 'RD' || bb.p.role === 'RW') yOff = 60;
+        return { tx: bb.myGoalX + (bb.forwardDir * 120), ty: RY + yOff, action: 'none' };
+    });
+
+    // --- TREES ---
+    const TREE_C = 
+${codeC};
+
+    const TREE_LW = 
+${codeLW};
+
+    const TREE_RW = 
+${codeRW};
+
+    const TREE_LD = 
+${codeLD};
+
+    const TREE_RD = 
+${codeRD};
+
+    // --- MAIN BRAIN ---
+    function think(p) {
+        const bb = makeBB(p);
+        let result = null;
+
+        switch(p.role) {
+            case "C":  result = TREE_C.tick(bb);  break;
+            case "LW": result = TREE_LW.tick(bb); break;
+            case "RW": result = TREE_RW.tick(bb); break;
+            case "LD": result = TREE_LD.tick(bb); break;
+            case "RD": result = TREE_RD.tick(bb); break;
+            default:   result = TREE_C.tick(bb);  break; 
+        }
+
+        if (!result || typeof result === "string" || isNaN(result.tx)) {
+            return { tx: p.x, ty: p.y, action: "none" };
+        }
+        return result;
+    }
+
+    if (typeof registerStrategy === "function") {
+        registerStrategy(
+            STRATEGY_ID,
+            "${sName}",
+            "${tName}",
+            "${tCode}",
+            think,
+            { main: "${c1}", secondary: "${c2}" }
+        );
+    }
+})();
+`;
+
+    document.getElementById("output").value = final;
+}
+</script>
+</body>
+</html>
