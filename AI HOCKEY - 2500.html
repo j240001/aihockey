@@ -50,6 +50,7 @@
 <script src="teams/bt10.js"></script>
 <script src="teams/bt11.js"></script>
 <script src="teams/bt12.js"></script>
+<script src="teams/bt13.js"></script>
 
 <script src="library.js"></script>
 <script src="strategy_interpreter.js"></script>
@@ -69,8 +70,9 @@
 // bt10 = FLA
 // bt11 = STL
 // bt12 = DET
+// bt13 = MTX  (Matrix team)
 
-// This version 2415 attempts to add an AI Coach training system
+// This version 2500 attempts to add a "formation system" for the ai skaters
 
 
 
@@ -744,14 +746,14 @@ function handleOptionsInput(e) {
 // =========================================================
 // GAME CLOCK AND SCORE GLOBALS
 // =========================================================
-const GAME_DURATION_SECONDS = 60; // seconds
+const GAME_DURATION_SECONDS = 180; // seconds
 let timeRemaining = GAME_DURATION_SECONDS;
 let lastGameTimeUpdate = performance.now();
 
 // MULTI-PERIOD SYSTEM
 let currentPeriod = 1;
 const TOTAL_PERIODS = 3;
-const PERIOD_LENGTH_SECONDS = 60; // same as GAME_DURATION_SECONDS
+const PERIOD_LENGTH_SECONDS = 180; // same as GAME_DURATION_SECONDS
 
 
 // ==========================================
