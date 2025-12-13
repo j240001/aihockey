@@ -141,88 +141,82 @@ const AICoach = {
         }
     },
 
-    // 4. MUTATION PHASE (NaN-Proof Edition)
+// 4. MUTATION PHASE (Surgical / Coordinate Only)
     prepareNextMutation: function(lastWasImprovement) {
+        // 1. Reset: Always start from the current "Best" (traineeJSON)
         this.mutantJSON = JSON.parse(JSON.stringify(this.traineeJSON));
         
-        const roles = ['c', 'lw', 'rw', 'ld', 'rd'];
-        const role = roles[Math.floor(Math.random() * roles.length)];
-        const tree = this.mutantJSON[role];
+        // Define which roles we want to train (3v3 Roster)
+        const activeRoles = ['c', 'rw', 'ld']; 
         
-        const targetNode = this.getRandomNode(tree[0]);
+        let changeLog = "";
+        let mutated = false;
+        let mutationStrength = 40; // How many pixels to move (Max)
 
-        if (!targetNode || targetNode.cat !== 'act') {
-            this.prepareNextMutation(lastWasImprovement); 
-            return;
+        // 2. Loop to ensure we actually change *something* before starting
+        let attempts = 0;
+        while (!mutated && attempts < 100) {
+            attempts++;
+
+            // Loop through active roles
+            activeRoles.forEach(role => {
+                if (!this.mutantJSON[role]) return;
+
+                const root = this.mutantJSON[role][0]; 
+                if (!root || !root.children) return;
+
+                // Traverse the Flattened List (Root Selector -> Sequences -> Nodes)
+                root.children.forEach(sequence => {
+                    if (!sequence.children) return;
+
+                    sequence.children.forEach(node => {
+                        // *** STRICTLY TARGET FORMATION NODES ***
+                        if (node.type === "actFormationTarget") {
+                            
+                            // 15% chance to mutate any specific coordinate node
+                            if (Math.random() < 0.15) {
+                                
+                                // Parse current values safely
+                                let currentX = parseInt(node.offsetx) || 0;
+                                let currentY = parseInt(node.offsety) || 0;
+
+                                // Apply Nudge
+                                let nudgeX = (Math.random() - 0.5) * 2 * mutationStrength;
+                                let nudgeY = (Math.random() - 0.5) * 2 * mutationStrength;
+
+                                // Calculate New Values
+                                let newX = currentX + nudgeX;
+                                let newY = currentY + nudgeY;
+
+                                // *** CLAMP VALUES (Prevent "Wall-Hugging" bug) ***
+                                // X: Keep between -350 (Deep D) and +350 (Deep O)
+                                newX = Math.max(-350, Math.min(350, newX)); 
+                                // Y: Keep inside the boards (-130 to +130)
+                                newY = Math.max(-130, Math.min(130, newY));
+
+                                // Save back as strings
+                                node.offsetx = Math.round(newX).toString();
+                                node.offsety = Math.round(newY).toString();
+                                
+                                mutated = true;
+                            }
+                        }
+                    });
+                });
+            });
         }
-
-        const status = lastWasImprovement ? "✅ KEEPING. " : "❌ REVERTING. ";
         
-        // DECIDE: SWAP ACTION OR TWEAK PARAMS?
-        // Only tweak if parameters actually EXIST and are valid numbers
-        const hasValidParams = (targetNode.offsetx !== undefined && !isNaN(targetNode.offsetx)) || 
-                               (targetNode.depth !== undefined && !isNaN(targetNode.depth));
-                               
-        // 50/50 chance, but ONLY if valid params exist
-        const tweakParams = hasValidParams && Math.random() < 0.5;
-
-        if (tweakParams) {
-            // --- OPTION A: TWEAK PARAMETERS (SAFELY) ---
-            let changeLog = "";
-
-            if (targetNode.offsetx !== undefined) {
-                const delta = (Math.floor(Math.random() * 5) - 2) * 10; 
-                // SAFETY CHECK: Ensure we parse a real integer, default to 0 if fails
-                const oldVal = parseInt(targetNode.offsetx) || 0;
-                const newVal = oldVal + delta;
-                targetNode.offsetx = newVal;
-                changeLog += `OffsetX ${oldVal} -> ${newVal} `;
-            }
-            
-            if (targetNode.offsety !== undefined) {
-                const delta = (Math.floor(Math.random() * 5) - 2) * 10;
-                const oldVal = parseInt(targetNode.offsety) || 0;
-                const newVal = oldVal + delta;
-                targetNode.offsety = newVal;
-                changeLog += `OffsetY ${oldVal} -> ${newVal}`;
-            }
-
-            // Only tweak depth if the node actually uses it
-            if (targetNode.depth !== undefined) {
-                const delta = (Math.floor(Math.random() * 5) - 2) * 10;
-                const oldVal = parseInt(targetNode.depth) || 0;
-                const newVal = oldVal + delta;
-                targetNode.depth = newVal;
-                changeLog += `Depth ${oldVal} -> ${newVal}`;
-            }
-
-            this.mutationDetails = `${status} Tweaking ${role.toUpperCase()}: ${targetNode.type} (${changeLog})`;
-
+        if (mutated) {
+            changeLog = "Tweaked Coordinates";
         } else {
-            // --- OPTION B: SWAP ACTION ---
-            const newAction = this.getValidReplacement(targetNode.type);
-            if (newAction) {
-                this.mutationDetails = `${status} Swapping ${role.toUpperCase()}: ${targetNode.type} -> ${newAction}`;
-                targetNode.type = newAction;
-                
-                // Set default params for specific new actions
-                if (newAction === "actSupportPosition") {
-                    targetNode.offsetx = -40; targetNode.offsety = 60;
-                } else if (newAction === "actSafetyPosition") {
-                    targetNode.depth = 120;
-                } else {
-                    // CRITICAL: Delete params so we don't carry over garbage
-                    delete targetNode.offsetx; 
-                    delete targetNode.offsety; 
-                    delete targetNode.depth;
-                }
-            } else {
-                this.mutationDetails = "Mutation Failed (No valid move). Retrying...";
-                this.prepareNextMutation(lastWasImprovement);
-                return;
-            }
+            changeLog = "No Change (Skipped)";
         }
+
+        // 3. Log Status
+        const status = lastWasImprovement ? "✅ KEEPING. " : "❌ REVERTING. ";
+        this.mutationDetails = `${status} ${changeLog}`;
             
+        // 4. Start Next Episode
         if (typeof startTrainingIntermission === 'function') {
             startTrainingIntermission();
         } else {
